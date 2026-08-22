@@ -1,0 +1,9 @@
+#!/bin/sh
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+if [ "$branch" = "main" ]; then
+  echo "拒绝直接提交到 main：请创建短期工作分支并通过评审。" >&2
+  exit 1
+fi
+
+exit 0
