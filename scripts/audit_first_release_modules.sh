@@ -19,6 +19,7 @@ required=(
   'github.com/xtls/xray-core/app/stats'
   'github.com/xtls/xray-core/proxy/vless/outbound'
   'github.com/xtls/xray-core/proxy/trojan'
+  'github.com/xtls/xray-core/proxy/vmess/outbound'
   'github.com/xtls/xray-core/transport/internet/tcp'
   'github.com/xtls/xray-core/transport/internet/reality'
 )
@@ -45,7 +46,6 @@ forbidden_patterns=(
   'github.com/xtls/xray-core/proxy/dokodemo'
   'github.com/xtls/xray-core/proxy/http'
   'github.com/xtls/xray-core/proxy/socks'
-  'github.com/xtls/xray-core/proxy/vmess'
   'github.com/xtls/xray-core/transport/internet/domainsocket'
   'github.com/xtls/xray-core/transport/internet/grpc'
   'github.com/xtls/xray-core/transport/internet/http'

@@ -27,6 +27,8 @@ import (
 	"github.com/xtls/xray-core/proxy/trojan"
 	"github.com/xtls/xray-core/proxy/vless"
 	vlessoutbound "github.com/xtls/xray-core/proxy/vless/outbound"
+	"github.com/xtls/xray-core/proxy/vmess"
+	vmessoutbound "github.com/xtls/xray-core/proxy/vmess/outbound"
 	"github.com/xtls/xray-core/transport/internet"
 	"github.com/xtls/xray-core/transport/internet/reality"
 	"github.com/xtls/xray-core/transport/internet/tcp"
@@ -38,6 +40,7 @@ const (
 	maxConfigBytes   = 4 * 1024 * 1024
 	firstReleaseVer  = 1
 	trojanProfileVer = 2
+	vmessProfileVer  = 3
 	realityKeyLength = 32
 	shortIDLength    = 8
 )
@@ -51,17 +54,17 @@ type Config struct {
 }
 
 type Outbound struct {
-	Protocol   string  `json:"protocol,omitempty"`
-	Address    string  `json:"address"`
-	Port       uint16  `json:"port"`
-	UUID       string  `json:"uuid"`
-	Password   string  `json:"password"`
-	Flow       string  `json:"flow"`
-	Encryption string  `json:"encryption"`
-	Transport  string  `json:"transport"`
-	Security   string  `json:"security"`
-	ServerName string  `json:"serverName"`
-	Reality    Reality `json:"reality"`
+	Protocol   string   `json:"protocol,omitempty"`
+	Address    string   `json:"address"`
+	Port       uint16   `json:"port"`
+	UUID       string   `json:"uuid"`
+	Password   string   `json:"password"`
+	Flow       string   `json:"flow"`
+	Encryption string   `json:"encryption"`
+	Transport  string   `json:"transport"`
+	Security   string   `json:"security"`
+	ServerName string   `json:"serverName"`
+	Reality    *Reality `json:"reality"`
 }
 
 type Reality struct {
@@ -107,17 +110,25 @@ func Load(input interface{}) (*core.Config, error) {
 }
 
 func (c Config) Build() (*core.Config, error) {
-	if c.Version != firstReleaseVer && c.Version != trojanProfileVer {
+	if c.Version != firstReleaseVer && c.Version != trojanProfileVer && c.Version != vmessProfileVer {
 		return nil, errors.New("unsupported Folo configuration version")
 	}
 	if c.Mode != "tun" {
 		return nil, errors.New("Folo first release requires mode=tun")
 	}
-	if c.Version == trojanProfileVer && c.Outbound.Protocol != "trojan" {
-		return nil, errors.New("Folo Trojan configuration requires protocol=trojan")
-	}
-	if c.Version == firstReleaseVer && c.Outbound.Protocol != "" {
-		return nil, errors.New("Folo VLESS configuration does not accept a protocol discriminator")
+	switch c.Version {
+	case firstReleaseVer:
+		if c.Outbound.Protocol != "" {
+			return nil, errors.New("Folo VLESS configuration does not accept a protocol discriminator")
+		}
+	case trojanProfileVer:
+		if c.Outbound.Protocol != "trojan" {
+			return nil, errors.New("Folo Trojan configuration requires protocol=trojan")
+		}
+	case vmessProfileVer:
+		if c.Outbound.Protocol != "vmess" {
+			return nil, errors.New("Folo VMess configuration requires protocol=vmess")
+		}
 	}
 
 	outbound, err := c.Outbound.Build()
@@ -140,10 +151,14 @@ func (c Config) Build() (*core.Config, error) {
 }
 
 func (o Outbound) Build() (*core.OutboundHandlerConfig, error) {
-	if o.Protocol == "trojan" {
+	switch o.Protocol {
+	case "trojan":
 		return o.buildTrojan()
+	case "vmess":
+		return o.buildVMess()
+	default:
+		return o.buildVless()
 	}
-	return o.buildVless()
 }
 
 func (o Outbound) buildVless() (*core.OutboundHandlerConfig, error) {
@@ -170,6 +185,9 @@ func (o Outbound) buildVless() (*core.OutboundHandlerConfig, error) {
 		return nil, errors.New("Folo first release supports only TCP plus Reality")
 	}
 
+	if o.Reality == nil {
+		return nil, errors.New("Folo VLESS Reality settings are required")
+	}
 	realitySettings, err := o.Reality.Build()
 	if err != nil {
 		return nil, err
@@ -229,7 +247,7 @@ func (o Outbound) buildTrojan() (*core.OutboundHandlerConfig, error) {
 	if o.Transport != "tcp" || o.Security != "tls" {
 		return nil, errors.New("Folo Trojan supports only TCP plus TLS")
 	}
-	if o.UUID != "" || o.Flow != "" || o.Encryption != "" || o.Reality != (Reality{}) {
+	if o.UUID != "" || o.Flow != "" || o.Encryption != "" || o.Reality != nil {
 		return nil, errors.New("Trojan configuration contains VLESS or Reality fields")
 	}
 
@@ -266,6 +284,87 @@ func (o Outbound) buildTrojan() (*core.OutboundHandlerConfig, error) {
 			Server: []*protocol.ServerEndpoint{endpoint},
 		}),
 	}, nil
+}
+
+func (o Outbound) buildVMess() (*core.OutboundHandlerConfig, error) {
+	if strings.TrimSpace(o.Address) == "" || len(o.Address) > 253 {
+		return nil, errors.New("VMess address is required")
+	}
+	if o.Port == 0 {
+		return nil, errors.New("VMess port is out of range")
+	}
+	if net.ParseAddress(o.Address) == nil {
+		return nil, errors.New("VMess address is invalid")
+	}
+	parsedUUID, err := uuid.ParseString(o.UUID)
+	if err != nil {
+		return nil, errors.New("VMess UUID is invalid").Base(err)
+	}
+	securityType, err := parseVMessSecurity(o.Encryption)
+	if err != nil {
+		return nil, err
+	}
+	if o.Transport != "tcp" || o.Security != "tls" {
+		return nil, errors.New("Folo VMess supports only TCP plus TLS")
+	}
+	if !validServerName(o.ServerName) {
+		return nil, errors.New("VMess serverName is invalid")
+	}
+	if o.Password != "" || o.Flow != "" || o.Reality != nil {
+		return nil, errors.New("VMess configuration contains Trojan, VLESS or Reality fields")
+	}
+
+	streamSettings := &internet.StreamConfig{
+		ProtocolName: "tcp",
+		TransportSettings: []*internet.TransportConfig{{
+			ProtocolName: "tcp",
+			Settings:     serial.ToTypedMessage(&tcp.Config{}),
+		}},
+		SecurityType: serial.GetMessageType(&tls.Config{}),
+		SecuritySettings: []*serial.TypedMessage{
+			serial.ToTypedMessage(&tls.Config{
+				ServerName: o.ServerName,
+				MinVersion: "1.2",
+				MaxVersion: "1.3",
+			}),
+		},
+	}
+	account := &vmess.Account{
+		Id: parsedUUID.String(),
+		SecuritySettings: &protocol.SecurityConfig{
+			Type: securityType,
+		},
+	}
+	endpoint := &protocol.ServerEndpoint{
+		Address: net.NewIPOrDomain(net.ParseAddress(o.Address)),
+		Port:    uint32(o.Port),
+		User: []*protocol.User{{
+			Account: serial.ToTypedMessage(account),
+		}},
+	}
+
+	return &core.OutboundHandlerConfig{
+		Tag: "proxy",
+		SenderSettings: serial.ToTypedMessage(&proxyman.SenderConfig{
+			StreamSettings: streamSettings,
+		}),
+		ProxySettings: serial.ToTypedMessage(&vmessoutbound.Config{
+			Receiver: []*protocol.ServerEndpoint{endpoint},
+		}),
+	}, nil
+}
+
+func parseVMessSecurity(value string) (protocol.SecurityType, error) {
+	switch value {
+	case "auto":
+		return protocol.SecurityType_AUTO, nil
+	case "aes-128-gcm":
+		return protocol.SecurityType_AES128_GCM, nil
+	case "chacha20-poly1305":
+		return protocol.SecurityType_CHACHA20_POLY1305, nil
+	default:
+		return protocol.SecurityType_UNKNOWN, errors.New("Folo VMess requires an approved AEAD security")
+	}
 }
 
 func validServerName(value string) bool {

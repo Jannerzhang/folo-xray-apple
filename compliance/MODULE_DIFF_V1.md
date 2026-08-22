@@ -8,6 +8,7 @@
 | --- | ---: | ---: | --- |
 | `go list -deps github.com/xtls/xray-core/main/distro/folo` | 571 | 389 | 以生产目标包为边界，不计测试包 |
 | 阶段 38 Trojan 候选闭包 | 389 | 391 | 增加已锁定 Xray MPL Trojan outbound 与严格 Folo parser 分支；仍不代表默认可请求 |
+| 阶段 39 VMess 候选闭包 | 391 | 402 | 增加已锁定 Xray MPL VMess outbound 与严格 AEAD/TCP/TLS Folo parser 分支；仍不代表默认可请求 |
 | 通用 JSON / `infra/conf` | 进入闭包 | 0 | 改为 `main/folojson` 严格版本化 schema |
 | Xray 本地 inbound listener manager | 进入闭包 | 0 | 改为 `main/foloinbound` 空 manager |
 | API / command server | 进入闭包 | 0 | 不注册 command 配置或 gRPC API |
@@ -17,7 +18,7 @@
 | TCP + Reality + TLS/uTLS | 保留 | 保留 | Reality/Vision 首发路径 |
 | stats manager | 保留 | 保留 | 仅供封装层读取受控计数 |
 
-阶段 09/38 的模块门禁由 [`scripts/audit_first_release_modules.sh`](../scripts/audit_first_release_modules.sh) 执行。脚本同时断言必须保留的注册包和禁止出现的包路径；Trojan 只通过版本化 Folo JSON 入口进入，构建脚本会把结果复制到每个本地 artifact manifest 目录。服务端与客户端仍默认只请求 VLESS/Reality。
+阶段 09/38/39 的模块门禁由 [`scripts/audit_first_release_modules.sh`](../scripts/audit_first_release_modules.sh) 执行。脚本同时断言必须保留的注册包和禁止出现的包路径；Trojan 与 VMess 只通过版本化 Folo JSON 入口进入，构建脚本会把结果复制到每个本地 artifact manifest 目录。服务端与客户端仍默认只请求 VLESS/Reality。
 
 本阶段本地审计结果：`dependency_count=391`、`go test` 通过、`license_boundary=pass`。公开 artifact 只有在干净提交上重新构建并更新 manifest 后，才可作为本阶段的构建输入；当前仍为 `localOnly`，不构成发布授权。
 
@@ -25,7 +26,7 @@
 
 首发不再接受任意 Xray JSON。应用层只生成 `compliance/fixtures/folo-vless-reality-v1.json` 所示的 Folo schema：
 
-首发 `version=1`、`mode=tun`、单一 VLESS outbound、TCP、Reality、`xtls-rprx-vision` 和 `encryption=none`；候选 Trojan 使用 `version=2`、显式 `protocol=trojan`、TCP、标准 TLS、serverName 和短期 password。
+首发 `version=1`、`mode=tun`、单一 VLESS outbound、TCP、Reality、`xtls-rprx-vision` 和 `encryption=none`；候选 Trojan 使用 `version=2`、显式 `protocol=trojan`、TCP、标准 TLS、serverName 和短期 password；候选 VMess 使用 `version=3`、显式 `protocol=vmess`、AEAD、`alterId=0`、TCP、标准 TLS 和 serverName。
 
 解析器拒绝未知字段、非 Reality 安全类型、非 TCP 传输、多个出口概念、监听器字段和超出大小上限的配置。Packet Tunnel 自有 TUN/socket adapter 不通过 Xray 的监听器实现注册。
 
