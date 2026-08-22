@@ -3,6 +3,7 @@ schemaVersion: 1
 auditDate: 2026-08-23
 policy: LICENSING.md
 targets:
+  - github.com/Jannerzhang/folo-xray-apple/apple-wrapper
   - github.com/xtls/xray-core/main/distro/folo
   - github.com/xtls/libxray/xray
 tool:
@@ -16,5 +17,6 @@ prohibitedModuleIdentifiers:
 observations:
   - The pristine Xray v1.8.24 module graph contained GPL-3.0 sing dependencies.
   - Patch 0001 removes those imports and the corresponding first-release source paths.
-  - The current import-closure scan reports only MIT, BSD, Apache-2.0 and MPL-2.0 components.
-  - Full framework SBOM and binary-symbol audit remains a stage-08 release gate.
+  - The current import-closure scan reports only MIT, BSD, Apache-2.0 and MPL-2.0 components, including the public Apple wrapper.
+  - The XCFramework artifact manifest records the fixed toolchain, slices, system link frameworks and exported-symbol allowlist.
+  - The framework remains local-only and releaseReady=false until the source offer and later Packet Tunnel gates are complete.

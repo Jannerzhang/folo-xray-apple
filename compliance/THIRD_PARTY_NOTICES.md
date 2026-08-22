@@ -2,13 +2,15 @@
 
 This notice describes the import closure scanned for:
 
+- github.com/Jannerzhang/folo-xray-apple/apple-wrapper
 - github.com/xtls/xray-core/main/distro/folo
 - github.com/xtls/libxray/xray
 
 The scan was run on 2026-08-23 with
 github.com/google/go-licenses@v1.6.0. The exact upstream source and license
 files are retained under upstream/; the lock, commit and license hashes are
-in [upstream.lock.yml](../upstream.lock.yml).
+in [upstream.lock.yml](../upstream.lock.yml). The wrapper's own MPL-2.0 text
+is retained in [apple-wrapper/LICENSE](../apple-wrapper/LICENSE).
 
 No GPL, AGPL, LGPL, SSPL, BUSL, non-commercial or no-derivatives component was
 reported in the current import closure. This is a local baseline record, not
@@ -17,6 +19,7 @@ XCFramework binary SBOM and exported-symbol audit.
 
 | Component | Version / revision | SPDX | License/source record |
 | --- | --- | --- | --- |
+| Folo public Apple wrapper | local commit | MPL-2.0 | [apple-wrapper/LICENSE](../apple-wrapper/LICENSE) |
 | XTLS/libXray | v3.1.0 | MIT | [upstream/libXray/LICENSE](../upstream/libXray/LICENSE) |
 | XTLS/Xray-core | v1.8.24 | MPL-2.0 | [upstream/xray-core/LICENSE](../upstream/xray-core/LICENSE) |
 | XTLS/reality | 48f0b2d5ed6d | MPL-2.0 | https://github.com/XTLS/reality/blob/48f0b2d5ed6d/LICENSE |
