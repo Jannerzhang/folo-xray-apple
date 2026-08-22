@@ -25,6 +25,9 @@ runtimeFeatures:
   - id: statistics
     package: github.com/xtls/xray-core/app/stats
     role: expose the bounded counters consumed by the wrapper ABI
+  - id: packetflow-endpoint
+    package: github.com/xtls/xray-core/main/folotun
+    role: strict IPv4/IPv6 PacketFlow v1 framing over an adopted stream socket; PoC loopback only
 protocolPath:
   proxy:
     - package: github.com/xtls/xray-core/proxy/vless/outbound
