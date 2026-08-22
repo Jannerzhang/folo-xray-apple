@@ -3,15 +3,16 @@ schemaVersion: 1
 profile: folo-ios-managed-protocols
 status: local-only
 purpose: >-
-  Explicit registration inventory for the Folo iOS first-release core. This
-  file is a reviewable contract; adding a protocol or service requires a new
-  profile revision and a new module/license audit.
+  Explicit registration inventory for the Folo iOS first-release core and
+  locally gated protocol candidates. This file is a reviewable contract;
+  adding a protocol or service requires a new profile revision and a new
+  module/license audit.
 configBoundary:
   loader: github.com/xtls/xray-core/main/folojson
   format: versioned-folo-json
   genericXrayJson: forbidden
   legacyInfraConf: forbidden
-  supportedSchemaVersion: 1
+  supportedSchemaVersions: [1, 2, 3]
 runtimeFeatures:
   - id: dispatcher
     package: github.com/xtls/xray-core/app/dispatcher
@@ -21,7 +22,7 @@ runtimeFeatures:
     role: empty feature-compatible manager; no local socket/listener creation
   - id: outbound-manager
     package: github.com/xtls/xray-core/app/proxyman/outbound
-    role: create the single gated VLESS or Trojan outbound handler
+    role: create the single gated VLESS, Trojan or VMess outbound handler
   - id: statistics
     package: github.com/xtls/xray-core/app/stats
     role: expose the bounded counters consumed by the wrapper ABI
@@ -34,6 +35,8 @@ protocolPath:
       capability: VLESS client
     - package: github.com/xtls/xray-core/proxy/trojan
       capability: Trojan client over managed TCP/TLS candidate path
+    - package: github.com/xtls/xray-core/proxy/vmess/outbound
+      capability: VMess AEAD client over managed TCP/TLS candidate path
   transport:
     - package: github.com/xtls/xray-core/transport/internet/tcp
       capability: TCP
@@ -44,10 +47,13 @@ protocolPath:
   vlessFeatures:
     - XTLS Vision
     - XUDP through the VLESS outbound path
+  vmessFeatures:
+    - AEAD account security only
+    - alterId=0 only
+    - TCP plus standard TLS and explicit serverName only
 excluded:
   protocols:
     - Shadowsocks and Shadowsocks 2022
-    - VMess
     - SOCKS and HTTP proxy listeners
     - WireGuard
     - SSH
@@ -77,4 +83,4 @@ restorePolicy:
     - license audit
     - binary SBOM
     - runtime and memory budget update
-  defaultReleasePolicy: VLESS/Reality remains the only requestable protocol until Trojan license, node interoperability, resource and signing gates pass
+  defaultReleasePolicy: VLESS/Reality remains the only requestable protocol until Trojan and VMess license, node interoperability, resource and signing gates pass

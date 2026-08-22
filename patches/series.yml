@@ -128,3 +128,23 @@ patches:
       - upstream.lock.yml
     upstreamStatus: not-submitted
     rollback: remove the 0005 Folo Trojan parser/import and restore the VLESS-only module boundary
+
+  - id: 0006-folo-vmess-aead-gated-profile
+    status: applied-local
+    license: MPL-2.0
+    purpose:
+      - Register the already locked Xray VMess outbound package as the only public VMess candidate implementation.
+      - Add a versioned, strict AEAD/TCP/TLS VMess profile with alterId=0 and explicit serverName.
+      - Keep VLESS/Reality as the only default requestable protocol until VMess human interoperability and release gates pass.
+    modified:
+      - upstream/xray-core/main/folojson/folojson.go
+      - upstream/xray-core/main/folojson/folojson_test.go
+      - upstream/xray-core/main/distro/folo/folo.go
+      - scripts/audit_first_release_modules.sh
+      - compliance/distro-v1.yml
+      - compliance/MODULE_DIFF_V1.md
+      - compliance/THIRD_PARTY_NOTICES.md
+      - compliance/VMESS_PROFILE_V1.md
+      - upstream.lock.yml
+    upstreamStatus: not-submitted
+    rollback: remove the 0006 Folo VMess parser/import and restore the Trojan candidate module boundary
