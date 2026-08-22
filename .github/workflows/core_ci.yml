@@ -1,0 +1,143 @@
+name: Folo public core CI and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['app-v*-core.*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: folo-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Reproducibility and license audit
+    runs-on: macos-14
+    steps:
+      - name: Checkout immutable source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install locked Go toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache: true
+
+      - name: Select the locked Xcode toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d /Applications/Xcode_26.4.1.app
+          sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Verify source lock and license boundary
+        run: |
+          ruby scripts/verify_upstream_lock.rb
+          ./scripts/check_license_boundary.sh
+
+      - name: Run public core tests
+        run: |
+          GOTOOLCHAIN=local go test github.com/xtls/xray-core/main/distro/folo
+          GOTOOLCHAIN=local go test github.com/xtls/libXray/xray
+          GOTOOLCHAIN=local go test github.com/Jannerzhang/folo-xray-apple/apple-wrapper
+
+  release:
+    name: Build, sign and publish core artifact
+    needs: audit
+    if: startsWith(github.ref, 'refs/tags/app-v')
+    runs-on: macos-14
+    environment: PublicCoreRelease
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install locked Go toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache: true
+
+      - name: Select the locked Xcode toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d /Applications/Xcode_26.4.1.app
+          sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
+
+      - name: Build the reproducible XCFramework
+        run: ./build/folo_build_xcframework.sh
+
+      - name: Package and generate SPDX release bundle
+        id: bundle
+        env:
+          SOURCE_URL: https://github.com/Jannerzhang/folo-xray-apple
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision=$(git rev-parse HEAD)
+          framework="artifacts/xcframework/${revision}/FoloXray.xcframework"
+          test -d "$framework"
+          archive="$RUNNER_TEMP/FoloXray.xcframework.zip"
+          ditto -c -k --keepParent "$framework" "$archive"
+          output="$RUNNER_TEMP/folo-core-release"
+          ruby scripts/generate_release_bundle.rb \
+            --artifact "$archive" \
+            --output "$output" \
+            --core-tag "$GITHUB_REF_NAME" \
+            --source-url "$SOURCE_URL" \
+            --source-offer-url "$SOURCE_URL/releases/tag/$GITHUB_REF_NAME" \
+            --release-ready
+          cp "artifacts/xcframework/${revision}/artifact-manifest.yml" "$output/artifact-manifest.yml"
+          echo "output=$output" >> "$GITHUB_OUTPUT"
+
+      - name: Sign artifact and compliance records
+        env:
+          FOLO_CORE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.FOLO_CORE_SIGNING_PRIVATE_KEY_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FOLO_CORE_SIGNING_PRIVATE_KEY_B64"
+          key="$RUNNER_TEMP/folo-core-signing.pem"
+          printf '%s' "$FOLO_CORE_SIGNING_PRIVATE_KEY_B64" | base64 --decode > "$key"
+          ruby scripts/sign_release_artifact.rb \
+            --artifact "${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip" \
+            --private-key "$key" \
+            --signature "${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip.sig"
+          rm -f "$key"
+
+      - name: Upload immutable release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: folo-core-${{ github.ref_name }}
+          if-no-files-found: error
+          path: |
+            ${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip
+            ${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip.sig
+            ${{ steps.bundle.outputs.output }}/release-manifest.json
+            ${{ steps.bundle.outputs.output }}/sbom.spdx.json
+            ${{ steps.bundle.outputs.output }}/THIRD_PARTY_NOTICES.md
+            ${{ steps.bundle.outputs.output }}/artifact-manifest.yml
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip
+            ${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip.sig
+            ${{ steps.bundle.outputs.output }}/release-manifest.json
+            ${{ steps.bundle.outputs.output }}/sbom.spdx.json
+            ${{ steps.bundle.outputs.output }}/THIRD_PARTY_NOTICES.md
+            ${{ steps.bundle.outputs.output }}/artifact-manifest.yml
