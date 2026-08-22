@@ -10,6 +10,8 @@ limits:
   maxConcurrentBuildProfiles: 1
   maxRealityPublicKeyBytes: 32
   maxRealityShortIdBytes: 8
+  packetFlowMaxPacketBytes: 65535
+  packetFlowMaxBatch: 64
 defaults:
   mode: tun
   transport: tcp

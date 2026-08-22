@@ -12,7 +12,8 @@ files are retained under upstream/; the lock, commit and license hashes are
 in [upstream.lock.yml](../upstream.lock.yml). The wrapper's own MPL-2.0 text
 is retained in [apple-wrapper/LICENSE](../apple-wrapper/LICENSE).
 
-The stage-09 Folo production dependency audit reports 389 packages for the
+The stage-09 Folo production dependency audit reports 389 packages and the
+stage-10 PacketFlow endpoint reports 390 packages for the
 `main/distro/folo` closure. It is intentionally narrower than the full Xray
 source tree: `main/folojson` is the only mobile JSON loader and
 `main/foloinbound` is an empty manager used to keep the Packet Tunnel as the
