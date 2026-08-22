@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "mode": "tun",
+  "outbound": {
+    "address": "edge.example.com",
+    "port": 443,
+    "uuid": "00000000-0000-0000-0000-000000000001",
+    "flow": "xtls-rprx-vision",
+    "encryption": "none",
+    "transport": "tcp",
+    "security": "reality",
+    "reality": {
+      "serverName": "www.example.com",
+      "fingerprint": "chrome",
+      "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "shortId": "0123456789abcdef",
+      "spiderX": "/"
+    }
+  }
+}

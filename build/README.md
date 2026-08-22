@@ -22,6 +22,19 @@ requires the system frameworks `CoreFoundation`, `Security`, and `libresolv`,
 which are recorded in the artifact manifest and are not bundled third-party
 code.
 
+Stage 09 runs `scripts/audit_first_release_modules.sh` before compiling any
+slice. The audit is tied to the Folo distro target rather than the full Xray
+repository and records the dependency count plus required/forbidden package
+paths in `module-audit.txt`. The build manifest also points to
+`compliance/distro-v1.yml`, `compliance/mobile-tuning-v1.yml`, and records the
+device/simulator static-library byte counts.
+
+The first-release configuration is not generic Xray JSON. The public core
+registers `main/folojson`, which accepts only the versioned VLESS/TCP/Reality
+schema. `main/foloinbound` supplies the feature contract needed by Xray while
+deliberately creating no TCP, UDP, or Unix listener. The Apple Packet Tunnel
+owns the TUN/socket adapter and remains the only local traffic entry point.
+
 Generated artifacts are ignored and are not committed to either the public
 core repository or the private client repository. The artifact is not release
 ready until the source-offer URL is public, the binary SBOM is attached, and

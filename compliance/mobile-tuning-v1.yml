@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+profile: folo-ios-mobile-tuning-v1
+status: local-only
+limits:
+  maxConfigBytes: 4194304
+  maxOutboundCount: 1
+  maxInboundCount: 0
+  maxEngineInstances: 1
+  maxConcurrentBuildProfiles: 1
+  maxRealityPublicKeyBytes: 32
+  maxRealityShortIdBytes: 8
+defaults:
+  mode: tun
+  transport: tcp
+  security: reality
+  vlessFlow: xtls-rprx-vision
+  vlessEncryption: none
+  statistics: enabled
+  routing: default-outbound-only
+  dns: system-resolver-through-packet-tunnel
+  logs: disabled-by-default
+  allowInsecure: false
+  disableServerNameVerification: true
+  note: >-
+    Reality performs its own authenticated handshake. The iOS client does not
+    expose a generic TLS insecure switch; certificate and Reality parameters
+    remain subscription-controlled and are validated by the parser.
+resourceBudget:
+  measurementUnit: bytes
+  budgetIs: hard review gate, not a promise of a fixed iOS process quota
+  deviceStaticLibraryBytes:
+    beforeStage09: 30758296
+    target: 30758296
+    rationale: >-
+      The first stage-09 gate is dependency and listener removal. A lower
+      binary size is desirable but cannot replace runtime Packet Tunnel
+      memory measurement on supported devices.
+  simulatorFatStaticLibraryBytes:
+    beforeStage09: 60021480
+    target: 60021480
+  runtimeMemory:
+    targetBytes: 15728640
+    escalationBytes: 25165824
+    measurement: peak resident memory of Packet Tunnel extension during a
+      15-minute TCP/Reality traffic soak
+  startup:
+    targetSeconds: 3
+    escalationSeconds: 8
+  shutdown:
+    targetSeconds: 2
+    escalationSeconds: 5
+changeControl:
+  configLimitOwner: apple-wrapper/folo_apple.go
+  schemaLimitOwner: upstream/xray-core/main/folojson
+  instanceLimitOwner: apple-wrapper/folo_apple.go
+  profileRevisionRequiredWhen:
+    - a new protocol or transport is registered
+    - a listener or API surface is introduced
+    - a hard limit changes
+    - an iOS deployment target or toolchain changes

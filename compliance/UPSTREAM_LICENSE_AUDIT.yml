@@ -19,4 +19,6 @@ observations:
   - Patch 0001 removes those imports and the corresponding first-release source paths.
   - The current import-closure scan reports only MIT, BSD, Apache-2.0 and MPL-2.0 components, including the public Apple wrapper.
   - The XCFramework artifact manifest records the fixed toolchain, slices, system link frameworks and exported-symbol allowlist.
+  - The stage-09 Folo distro closure is 389 packages and excludes generic infra/conf, local listener workers, API/command, observatory and legacy proxy/transport packages.
+  - The stage-09 configuration boundary is main/folojson; the mobile wrapper accepts only the versioned VLESS/TCP/Reality schema.
   - The framework remains local-only and releaseReady=false until the source offer and later Packet Tunnel gates are complete.

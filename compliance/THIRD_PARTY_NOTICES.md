@@ -12,6 +12,13 @@ files are retained under upstream/; the lock, commit and license hashes are
 in [upstream.lock.yml](../upstream.lock.yml). The wrapper's own MPL-2.0 text
 is retained in [apple-wrapper/LICENSE](../apple-wrapper/LICENSE).
 
+The stage-09 Folo production dependency audit reports 389 packages for the
+`main/distro/folo` closure. It is intentionally narrower than the full Xray
+source tree: `main/folojson` is the only mobile JSON loader and
+`main/foloinbound` is an empty manager used to keep the Packet Tunnel as the
+only local traffic entry point. See [MODULE_DIFF_V1.md](MODULE_DIFF_V1.md) and
+[distro-v1.yml](distro-v1.yml) for the exact allow/deny boundary.
+
 No GPL, AGPL, LGPL, SSPL, BUSL, non-commercial or no-derivatives component was
 reported in the current import closure. This is a local baseline record, not
 an assertion that an App Store release is ready: stage 08 must add the
@@ -20,6 +27,8 @@ XCFramework binary SBOM and exported-symbol audit.
 | Component | Version / revision | SPDX | License/source record |
 | --- | --- | --- | --- |
 | Folo public Apple wrapper | local commit | MPL-2.0 | [apple-wrapper/LICENSE](../apple-wrapper/LICENSE) |
+| Folo first-release JSON boundary | local commit | MPL-2.0 | [distro-v1.yml](distro-v1.yml) |
+| Folo empty inbound manager | local commit | MPL-2.0 | [distro-v1.yml](distro-v1.yml) |
 | XTLS/libXray | v3.1.0 | MIT | [upstream/libXray/LICENSE](../upstream/libXray/LICENSE) |
 | XTLS/Xray-core | v1.8.24 | MPL-2.0 | [upstream/xray-core/LICENSE](../upstream/xray-core/LICENSE) |
 | XTLS/reality | 48f0b2d5ed6d | MPL-2.0 | https://github.com/XTLS/reality/blob/48f0b2d5ed6d/LICENSE |

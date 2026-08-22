@@ -61,6 +61,8 @@ printf 'sourceRevision: %s\n' "${SOURCE_REVISION}"
 printf 'sourceLockSha256: %s\n' "${SOURCE_LOCK_SHA256}"
 printf 'go: %s\nxcode: %s (%s)\nsdk: %s\ndeploymentTarget: %s\n' "${ACTUAL_GO}" "${ACTUAL_XCODE}" "${ACTUAL_XCODE_BUILD}" "${ACTUAL_SDK}" "${MIN_IOS}"
 
+"${REPO_ROOT}/scripts/audit_first_release_modules.sh" | tee "${BUILD_ROOT}/module-audit.txt"
+
 build_slice() {
   local name="$1"
   local goos="$2"
@@ -182,6 +184,8 @@ diff -u "${EXPECTED_SYMBOLS}" "${BUILD_ROOT}/symbols/exported.txt" || die "expor
 
 DEVICE_SHA256="$(shasum -a 256 "${FRAMEWORK_SLICE_DEVICE}" | awk '{print $1}')"
 SIMULATOR_SHA256="$(shasum -a 256 "${FRAMEWORK_SLICE_SIMULATOR}" | awk '{print $1}')"
+DEVICE_BYTES="$(wc -c < "${FRAMEWORK_SLICE_DEVICE}" | tr -d ' ')"
+SIMULATOR_BYTES="$(wc -c < "${FRAMEWORK_SLICE_SIMULATOR}" | tr -d ' ')"
 FRAMEWORK_SHA256="$(python3 - "${FRAMEWORK_ROOT}" <<'PY'
 import hashlib
 from pathlib import Path
@@ -213,7 +217,13 @@ toolchain:
 slices:
   - ios-arm64
   - ios-arm64_x86_64-simulator
+moduleBoundary: module-audit.txt
+distroProfile: compliance/distro-v1.yml
+tuningProfile: compliance/mobile-tuning-v1.yml
 symbols: symbols/exported.txt
+sizes:
+  deviceStaticLibraryBytes: ${DEVICE_BYTES}
+  simulatorStaticLibraryBytes: ${SIMULATOR_BYTES}
 hashes:
   deviceStaticLibrary: ${DEVICE_SHA256}
   simulatorStaticLibrary: ${SIMULATOR_SHA256}
