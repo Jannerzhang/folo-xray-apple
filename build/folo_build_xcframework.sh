@@ -19,6 +19,7 @@ command -v go >/dev/null 2>&1 || die "go is required"
 command -v xcodebuild >/dev/null 2>&1 || die "xcodebuild is required"
 command -v xcrun >/dev/null 2>&1 || die "xcrun is required"
 command -v file >/dev/null 2>&1 || die "file is required"
+command -v python3 >/dev/null 2>&1 || die "python3 is required to normalize the plist"
 command -v ruby >/dev/null 2>&1 || die "ruby is required to read the lock file"
 
 [[ -f "${LOCK_FILE}" ]] || die "missing ${LOCK_FILE}"
@@ -120,6 +121,20 @@ xcodebuild -create-xcframework \
   -library "${SLICE_ROOT}/ios-arm64/libFoloXray.a" -headers "${HEADER_ROOT}" \
   -library "${SLICE_ROOT}/ios-simulator/libFoloXray.a" -headers "${HEADER_ROOT}" \
   -output "${FRAMEWORK_ROOT}"
+
+python3 - "${FRAMEWORK_ROOT}/Info.plist" <<'PY'
+import plistlib
+import sys
+
+path = sys.argv[1]
+with open(path, "rb") as handle:
+    plist = plistlib.load(handle)
+plist["AvailableLibraries"] = sorted(
+    plist["AvailableLibraries"], key=lambda item: item["LibraryIdentifier"]
+)
+with open(path, "wb") as handle:
+    plistlib.dump(plist, handle, fmt=plistlib.FMT_BINARY, sort_keys=True)
+PY
 
 FRAMEWORK_SLICE_DEVICE="${FRAMEWORK_ROOT}/ios-arm64/libFoloXray.a"
 FRAMEWORK_SLICE_SIMULATOR="${FRAMEWORK_ROOT}/ios-arm64_x86_64-simulator/libFoloXray.a"
