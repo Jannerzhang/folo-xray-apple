@@ -125,8 +125,8 @@ FRAMEWORK_SLICE_SIMULATOR="${FRAMEWORK_ROOT}/ios-arm64_x86_64-simulator/libFoloX
 [[ -f "${FRAMEWORK_SLICE_SIMULATOR}" ]] || die "simulator slice missing from XCFramework"
 
 mkdir -p "${BUILD_ROOT}/symbols"
-nm -gU "${FRAMEWORK_SLICE_DEVICE}" | awk '/ FoloXray/ {print $3}' | sort -u > "${BUILD_ROOT}/symbols/device.txt"
-nm -gU "${FRAMEWORK_SLICE_SIMULATOR}" | awk '/ FoloXray/ {print $3}' | sort -u > "${BUILD_ROOT}/symbols/simulator.txt"
+nm -gU "${FRAMEWORK_SLICE_DEVICE}" | awk '$3 ~ /^_FoloXray/ {print $3}' | sort -u > "${BUILD_ROOT}/symbols/device.txt"
+nm -gU "${FRAMEWORK_SLICE_SIMULATOR}" | awk '$3 ~ /^_FoloXray/ {print $3}' | sort -u > "${BUILD_ROOT}/symbols/simulator.txt"
 cat "${BUILD_ROOT}/symbols/device.txt" "${BUILD_ROOT}/symbols/simulator.txt" | sort -u > "${BUILD_ROOT}/symbols/exported.txt"
 
 EXPECTED_SYMBOLS="${BUILD_ROOT}/symbols/expected.txt"
