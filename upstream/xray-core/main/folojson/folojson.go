@@ -24,17 +24,20 @@ import (
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/uuid"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/proxy/trojan"
 	"github.com/xtls/xray-core/proxy/vless"
 	vlessoutbound "github.com/xtls/xray-core/proxy/vless/outbound"
 	"github.com/xtls/xray-core/transport/internet"
 	"github.com/xtls/xray-core/transport/internet/reality"
 	"github.com/xtls/xray-core/transport/internet/tcp"
+	"github.com/xtls/xray-core/transport/internet/tls"
 )
 
 const (
 	formatName       = "JSON"
 	maxConfigBytes   = 4 * 1024 * 1024
 	firstReleaseVer  = 1
+	trojanProfileVer = 2
 	realityKeyLength = 32
 	shortIDLength    = 8
 )
@@ -48,13 +51,16 @@ type Config struct {
 }
 
 type Outbound struct {
+	Protocol   string  `json:"protocol,omitempty"`
 	Address    string  `json:"address"`
 	Port       uint16  `json:"port"`
 	UUID       string  `json:"uuid"`
+	Password   string  `json:"password"`
 	Flow       string  `json:"flow"`
 	Encryption string  `json:"encryption"`
 	Transport  string  `json:"transport"`
 	Security   string  `json:"security"`
+	ServerName string  `json:"serverName"`
 	Reality    Reality `json:"reality"`
 }
 
@@ -101,11 +107,17 @@ func Load(input interface{}) (*core.Config, error) {
 }
 
 func (c Config) Build() (*core.Config, error) {
-	if c.Version != firstReleaseVer {
+	if c.Version != firstReleaseVer && c.Version != trojanProfileVer {
 		return nil, errors.New("unsupported Folo configuration version")
 	}
 	if c.Mode != "tun" {
 		return nil, errors.New("Folo first release requires mode=tun")
+	}
+	if c.Version == trojanProfileVer && c.Outbound.Protocol != "trojan" {
+		return nil, errors.New("Folo Trojan configuration requires protocol=trojan")
+	}
+	if c.Version == firstReleaseVer && c.Outbound.Protocol != "" {
+		return nil, errors.New("Folo VLESS configuration does not accept a protocol discriminator")
 	}
 
 	outbound, err := c.Outbound.Build()
@@ -128,6 +140,13 @@ func (c Config) Build() (*core.Config, error) {
 }
 
 func (o Outbound) Build() (*core.OutboundHandlerConfig, error) {
+	if o.Protocol == "trojan" {
+		return o.buildTrojan()
+	}
+	return o.buildVless()
+}
+
+func (o Outbound) buildVless() (*core.OutboundHandlerConfig, error) {
 	if strings.TrimSpace(o.Address) == "" || len(o.Address) > 253 {
 		return nil, errors.New("VLESS address is required")
 	}
@@ -189,6 +208,86 @@ func (o Outbound) Build() (*core.OutboundHandlerConfig, error) {
 			Vnext: []*protocol.ServerEndpoint{endpoint},
 		}),
 	}, nil
+}
+
+func (o Outbound) buildTrojan() (*core.OutboundHandlerConfig, error) {
+	if strings.TrimSpace(o.Address) == "" || len(o.Address) > 253 {
+		return nil, errors.New("Trojan address is required")
+	}
+	if o.Port == 0 {
+		return nil, errors.New("Trojan port is out of range")
+	}
+	if net.ParseAddress(o.Address) == nil {
+		return nil, errors.New("Trojan address is invalid")
+	}
+	if strings.TrimSpace(o.Password) == "" || len(o.Password) > 256 {
+		return nil, errors.New("Trojan password is invalid")
+	}
+	if !validServerName(o.ServerName) {
+		return nil, errors.New("Trojan serverName is invalid")
+	}
+	if o.Transport != "tcp" || o.Security != "tls" {
+		return nil, errors.New("Folo Trojan supports only TCP plus TLS")
+	}
+	if o.UUID != "" || o.Flow != "" || o.Encryption != "" || o.Reality != (Reality{}) {
+		return nil, errors.New("Trojan configuration contains VLESS or Reality fields")
+	}
+
+	streamSettings := &internet.StreamConfig{
+		ProtocolName: "tcp",
+		TransportSettings: []*internet.TransportConfig{{
+			ProtocolName: "tcp",
+			Settings:     serial.ToTypedMessage(&tcp.Config{}),
+		}},
+		SecurityType: serial.GetMessageType(&tls.Config{}),
+		SecuritySettings: []*serial.TypedMessage{
+			serial.ToTypedMessage(&tls.Config{
+				ServerName: o.ServerName,
+				MinVersion: "1.2",
+				MaxVersion: "1.3",
+			}),
+		},
+	}
+	account := &trojan.Account{Password: o.Password}
+	endpoint := &protocol.ServerEndpoint{
+		Address: net.NewIPOrDomain(net.ParseAddress(o.Address)),
+		Port:    uint32(o.Port),
+		User: []*protocol.User{{
+			Account: serial.ToTypedMessage(account),
+		}},
+	}
+
+	return &core.OutboundHandlerConfig{
+		Tag: "proxy",
+		SenderSettings: serial.ToTypedMessage(&proxyman.SenderConfig{
+			StreamSettings: streamSettings,
+		}),
+		ProxySettings: serial.ToTypedMessage(&trojan.ClientConfig{
+			Server: []*protocol.ServerEndpoint{endpoint},
+		}),
+	}, nil
+}
+
+func validServerName(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 253 || strings.ContainsAny(value, "/ ") {
+		return false
+	}
+	if net.ParseAddress(value) != nil {
+		return true
+	}
+	labels := strings.Split(value, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, char := range label {
+			if !(char == '-' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (r Reality) Build() (*reality.Config, error) {
