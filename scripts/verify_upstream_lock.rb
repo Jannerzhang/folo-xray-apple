@@ -5,7 +5,13 @@ require "digest"
 require "yaml"
 
 root = File.expand_path("..", __dir__)
-lock = YAML.load_file(File.join(root, "upstream.lock.yml"))
+lock = if YAML.respond_to?(:safe_load_file)
+  YAML.safe_load_file(File.join(root, "upstream.lock.yml"), permitted_classes: [Date, Time])
+elsif YAML.method(:load_file).parameters.any? { |type, name| name == :permitted_classes }
+  YAML.load_file(File.join(root, "upstream.lock.yml"), permitted_classes: [Date, Time])
+else
+  YAML.load_file(File.join(root, "upstream.lock.yml"))
+end
 errors = []
 
 def tree_digest(path)
