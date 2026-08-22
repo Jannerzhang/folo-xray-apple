@@ -16,6 +16,9 @@ produces an unsigned, local-only artifact under
 - `artifact-manifest.yml` with source, toolchain, symbols and hashes;
 - `symbols/` and `build.log` for audit evidence.
 
+`fixture/folo_xray_link_fixture.c` is a minimal iOS 17 link fixture. It only
+calls version and state functions and never starts the engine.
+
 Generated artifacts are ignored and are not committed to either the public
 core repository or the private client repository. The artifact is not release
 ready until the source-offer URL is public, the binary SBOM is attached, and
