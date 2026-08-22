@@ -89,3 +89,23 @@ patches:
       - apple-wrapper/folo_apple.h
     upstreamStatus: not-submitted
     rollback: remove the 0003 packet endpoint and keep the stage-09 framing boundary out of the first-release artifact
+
+  - id: 0004-folo-packetflow-v1-transport-seams
+    status: applied-local
+    license: MPL-2.0
+    purpose:
+      - Expose only bounded TCP and UDP outbound sessions backed by the running Folo Xray dispatcher.
+      - Give the private MIT/Apache PacketFlow adapter a stable C ABI without exposing Xray types, listeners or generic JSON.
+      - Close all transport sessions before the managed Xray instance stops and cap concurrent sessions at 256.
+    modified:
+      - upstream/xray-core/main/folotun/transport.go
+      - upstream/xray-core/main/folotun/transport_test.go
+      - apple-wrapper/transport_abi.go
+      - apple-wrapper/folo_apple.go
+      - apple-wrapper/folo_apple.h
+      - build/folo_build_xcframework.sh
+      - build/README.md
+      - compliance/PACKETFLOW_TRANSPORT_V1.md
+      - upstream.lock.yml
+    upstreamStatus: not-submitted
+    rollback: remove the 0004 transport seam and keep the private PacketFlow adapter on the stage-10 loopback boundary

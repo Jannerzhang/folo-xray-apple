@@ -40,6 +40,9 @@ bounded PacketFlow v1 framing/loopback endpoint for validating complete
 IPv4/IPv6 packet transport over a public `SOCK_STREAM` socketpair. It does not
 parse proxy protocols or create a listener; the private Swift bridge owns
 `NEPacketTunnelFlow`, and the real VLESS/TUN data plane remains a later gate.
+Stage 13 adds bounded `FoloXrayTCP*` and `FoloXrayUDP*` outbound transport
+seams for a private MIT/Apache IP stack; these APIs do not add listeners or
+generic configuration entry points.
 
 Generated artifacts are ignored and are not committed to either the public
 core repository or the private client repository. The artifact is not release

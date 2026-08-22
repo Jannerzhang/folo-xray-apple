@@ -32,6 +32,9 @@ const (
 	statusStartFailed          int32 = 4
 	statusStopFailed           int32 = 5
 	statusInternalError        int32 = 6
+	statusIOError              int32 = 7
+	statusEOF                  int32 = 8
+	statusResourceLimit        int32 = 9
 )
 
 const (
@@ -293,6 +296,7 @@ func FoloXrayStop() C.int32_t {
 		clearErrorLocked()
 		return C.int32_t(statusOK)
 	}
+	closeTransportSessions()
 	if err := engine.instance.Close(); err != nil {
 		engine.instance = nil
 		engine.state = stateIdle

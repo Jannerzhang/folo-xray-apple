@@ -175,15 +175,23 @@ printf '%s\n' \
 	_FoloXrayPacketBridgeStart \
 	_FoloXrayPacketBridgeState \
 	_FoloXrayPacketBridgeStop \
+	_FoloXrayTCPClose \
+	_FoloXrayTCPConnect \
+	_FoloXrayTCPRead \
+	_FoloXrayTCPWrite \
 	_FoloXrayCopyLastError \
   _FoloXrayCopyStatsJSON \
   _FoloXrayCopyVersion \
   _FoloXrayFreeString \
   _FoloXrayLastErrorCode \
-  _FoloXrayStartJSON \
-  _FoloXrayState \
-  _FoloXrayStop \
-  _FoloXrayValidateConfigJSON | sort -u > "${EXPECTED_SYMBOLS}"
+	_FoloXrayStartJSON \
+	_FoloXrayState \
+	_FoloXrayStop \
+	_FoloXrayUDPClose \
+	_FoloXrayUDPConnect \
+	_FoloXrayUDPRead \
+	_FoloXrayUDPWrite \
+	_FoloXrayValidateConfigJSON | sort -u > "${EXPECTED_SYMBOLS}"
 diff -u "${EXPECTED_SYMBOLS}" "${BUILD_ROOT}/symbols/exported.txt" || die "exported ABI differs from the allowlist"
 
 DEVICE_SHA256="$(shasum -a 256 "${FRAMEWORK_SLICE_DEVICE}" | awk '{print $1}')"
