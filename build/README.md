@@ -35,6 +35,12 @@ schema. `main/foloinbound` supplies the feature contract needed by Xray while
 deliberately creating no TCP, UDP, or Unix listener. The Apple Packet Tunnel
 owns the TUN/socket adapter and remains the only local traffic entry point.
 
+Stage 10 adds `main/folotun` and the `FoloXrayPacketBridge*` ABI. This is a
+bounded PacketFlow v1 framing/loopback endpoint for validating complete
+IPv4/IPv6 packet transport over a public `SOCK_STREAM` socketpair. It does not
+parse proxy protocols or create a listener; the private Swift bridge owns
+`NEPacketTunnelFlow`, and the real VLESS/TUN data plane remains a later gate.
+
 Generated artifacts are ignored and are not committed to either the public
 core repository or the private client repository. The artifact is not release
 ready until the source-offer URL is public, the binary SBOM is attached, and

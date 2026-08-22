@@ -171,7 +171,11 @@ cat "${BUILD_ROOT}/symbols/device.txt" "${BUILD_ROOT}/symbols/simulator.txt" | s
 
 EXPECTED_SYMBOLS="${BUILD_ROOT}/symbols/expected.txt"
 printf '%s\n' \
-  _FoloXrayCopyLastError \
+	_FoloXrayPacketBridgeCopyStatsJSON \
+	_FoloXrayPacketBridgeStart \
+	_FoloXrayPacketBridgeState \
+	_FoloXrayPacketBridgeStop \
+	_FoloXrayCopyLastError \
   _FoloXrayCopyStatsJSON \
   _FoloXrayCopyVersion \
   _FoloXrayFreeString \

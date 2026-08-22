@@ -13,6 +13,7 @@ GOTOOLCHAIN=local go list -deps github.com/xtls/xray-core/main/distro/folo > "$d
 required=(
   'github.com/xtls/xray-core/main/folojson'
   'github.com/xtls/xray-core/main/foloinbound'
+  'github.com/xtls/xray-core/main/folotun'
   'github.com/xtls/xray-core/app/dispatcher'
   'github.com/xtls/xray-core/app/proxyman/outbound'
   'github.com/xtls/xray-core/app/stats'

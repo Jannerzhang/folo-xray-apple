@@ -72,3 +72,20 @@ patches:
       - github.com/xtls/xray-core/app/proxyman/inbound from Folo target closure
     upstreamStatus: not-submitted
     rollback: remove the 0002 Folo distro registration and restore the stage-08 Folo import list
+
+  - id: 0003-folo-packetflow-v1-endpoint
+    status: applied-local
+    license: MPL-2.0
+    purpose:
+      - Add complete IPv4/IPv6 packet framing with strict length and metadata validation.
+      - Adopt one caller-provided POSIX stream socket without fd enumeration or private Network Extension APIs.
+      - Provide an idempotent loopback pump and statistics surface for the PacketFlow PoC.
+    modified:
+      - upstream/xray-core/main/distro/folo/folo.go
+      - upstream/xray-core/main/folotun/frame.go
+      - upstream/xray-core/main/folotun/frame_test.go
+      - upstream/xray-core/main/folotun/socket.go
+      - apple-wrapper/folo_apple.go
+      - apple-wrapper/folo_apple.h
+    upstreamStatus: not-submitted
+    rollback: remove the 0003 packet endpoint and keep the stage-09 framing boundary out of the first-release artifact
