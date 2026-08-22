@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+observedAt: 2026-08-23
+
+# This file locks the source inputs. The archive hashes identify the pristine
+# upstream tags; patchedTreeDigest identifies the source actually committed in
+# this repository after the public Folo patch series is applied.
+baseline:
+  status: local-only-not-release
+  releaseTagFormat: app-v<app-version>-core.<revision>
+  sourceOfferStatus: pending-local-first-publication
+  patchSeries: patches/series.yml
+  toolchain:
+    coreMinimumGo: "1.21.4"
+    wrapperMinimumGo: "1.23.1"
+    observedGo: "go1.26.4 darwin/arm64"
+    appleBuildPinning: stage-08
+  components:
+    - id: xray-core
+      module: github.com/xtls/xray-core
+      repository: https://github.com/XTLS/Xray-core
+      tag: v1.8.24
+      commit: 6baad79f9881ee2cf75bdc825b3e2e92b289477a
+      sourceTree: aed1175b23a1e42193d61eb75c4d542a7d004769
+      sourceArchiveSha256: ffa2562a26d6677fa8e5f32b2ce92b7cb7fa33b7c45f26e47fbf9f8ec83e76e7
+      importedPath: upstream/xray-core
+      patchedTreeDigest: 39a785a3b416f288ed7a59b8dd4af66852075eed4e192c7eb3db97445ca9faf5
+      fileCount: 800
+      license:
+        spdx: MPL-2.0
+        file: upstream/xray-core/LICENSE
+        sha256: 1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5
+      compatibility:
+        wrapper: libXray-v3.1.0
+        reason: libXray-v3.1.0 declares xray-core-v1.8.24
+
+    - id: libXray
+      module: github.com/xtls/libxray
+      repository: https://github.com/XTLS/libXray
+      tag: v3.1.0
+      commit: 26d3df3c5bb36bd7962fa34fae5c32fb0f354fe6
+      sourceTree: 523aaabda9645335f1617e762385ec9147abfe30
+      sourceArchiveSha256: 65364ddcb1aa54c8b3b7d55d9fb235fc26b4a6bb5dd6569b4f941b6eece8aef7
+      importedPath: upstream/libXray
+      patchedTreeDigest: 2b0cff899919bfae41b44d3a886cbb042e306aae7ac20d000929ac46a87d2f9e
+      fileCount: 43
+      license:
+        spdx: MIT
+        file: upstream/libXray/LICENSE
+        sha256: b976920613d872432ba58dc3fb3d8af938fc58317061ab73c0beaa82dcb5e045
+
+  rejectedCandidates:
+    - id: xray-core-v26.7.28
+      repository: https://github.com/XTLS/Xray-core
+      tag: v26.7.28
+      commit: 5ca6f4b7d4dc20a881d4330e498892697627ec0c
+      reason:
+        - libXray-v3.1.0 does not declare compatibility with this core revision.
+        - Its source and module graph still import sing and sing-shadowsocks.
+      licenseFinding: GPL-3.0 dependency path
+      nextReview: require a newer compatible wrapper and a new GPL-free module audit

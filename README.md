@@ -4,11 +4,14 @@ Public compliance and reproducible-build repository for the Xray runtime used by
 
 ## Repository status
 
-The repository begins empty. No upstream source or binary has been imported yet. A later approved stage will lock exact Xray-core and libXray commits, preserve upstream history and notices, apply a reviewable Apple patch series, and publish reproducible XCFramework evidence.
+The local stage-07 baseline is now imported and locked. It uses Xray-core
+v1.8.24 with libXray v3.1.0, applies a public GPL-free VLESS/Reality distro
+patch, and has no XCFramework or release binary yet. The local repository has
+not been pushed to the remote repository.
 
 This repository must never contain Folo account logic, private API implementations, production endpoints, signing material, node credentials, user data, or proprietary SwiftUI product source.
 
-## Planned layout
+## Layout
 
 ```text
 upstream/       locked upstream source or documented acquisition inputs
@@ -18,7 +21,9 @@ build/          reproducible build scripts
 compliance/     licenses, SBOM, notices, source-offer and manifests
 ```
 
-No directory is created until its stage has approved source and license inputs.
+The source, patch, build, Apple boundary and compliance directories are
+created only from approved inputs. Stage 08 is responsible for the first
+reproducible XCFramework.
 
 ## Licensing
 
