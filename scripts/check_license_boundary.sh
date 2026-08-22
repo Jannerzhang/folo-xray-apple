@@ -5,7 +5,17 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-if rg -n -i 'GPL-3\.0|AGPL|LGPL|SSPL|BUSL|Commons Clause|sagernet/sing|sing-shadowsocks' upstream --glob '!**/README.md' --glob '!**/LICENSE'; then
+search_pattern() {
+  local pattern="$1"
+  local target_dir="$2"
+  if command -v rg >/dev/null 2>&1; then
+    rg -n -i "$pattern" "$target_dir" --glob '!**/README.md' --glob '!**/LICENSE'
+  else
+    grep -r -n -E -i "$pattern" "$target_dir" --exclude="README.md" --exclude="LICENSE" || true
+  fi
+}
+
+if search_pattern 'GPL-3\.0|AGPL|LGPL|SSPL|BUSL|Commons Clause|sagernet/sing|sing-shadowsocks' upstream | grep -q .; then
   echo "forbidden license or module identifier found in upstream source" >&2
   exit 1
 fi
@@ -22,7 +32,7 @@ for target in \
   github.com/xtls/libxray/xray
 do
   report="$(GOTOOLCHAIN=local go run github.com/google/go-licenses@v1.6.0 report "$target")"
-  if printf '%s\n' "$report" | rg -n -i 'GPL-3\.0|AGPL|LGPL|SSPL|BUSL|Commons Clause'; then
+  if printf '%s\n' "$report" | grep -n -E -i 'GPL-3\.0|AGPL|LGPL|SSPL|BUSL|Commons Clause'; then
     echo "forbidden license reported for $target" >&2
     exit 1
   fi
