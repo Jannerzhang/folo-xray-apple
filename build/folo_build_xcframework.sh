@@ -182,7 +182,19 @@ diff -u "${EXPECTED_SYMBOLS}" "${BUILD_ROOT}/symbols/exported.txt" || die "expor
 
 DEVICE_SHA256="$(shasum -a 256 "${FRAMEWORK_SLICE_DEVICE}" | awk '{print $1}')"
 SIMULATOR_SHA256="$(shasum -a 256 "${FRAMEWORK_SLICE_SIMULATOR}" | awk '{print $1}')"
-FRAMEWORK_SHA256="$(find "${FRAMEWORK_ROOT}" -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')"
+FRAMEWORK_SHA256="$(python3 - "${FRAMEWORK_ROOT}" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+records = []
+for path in sorted(item for item in root.rglob('*') if item.is_file()):
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    records.append(f"{path.relative_to(root).as_posix()}  {digest}\n".encode())
+print(hashlib.sha256(b"".join(records)).hexdigest())
+PY
+)"
 
 cat > "${BUILD_ROOT}/artifact-manifest.yml" <<EOF
 schemaVersion: 1
