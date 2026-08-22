@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+profile: folo-ios-first-release
+status: local-only
+purpose: >-
+  Explicit registration inventory for the Folo iOS first-release core. This
+  file is a reviewable contract; adding a protocol or service requires a new
+  profile revision and a new module/license audit.
+configBoundary:
+  loader: github.com/xtls/xray-core/main/folojson
+  format: versioned-folo-json
+  genericXrayJson: forbidden
+  legacyInfraConf: forbidden
+  supportedSchemaVersion: 1
+runtimeFeatures:
+  - id: dispatcher
+    package: github.com/xtls/xray-core/app/dispatcher
+    role: dispatch Packet Tunnel traffic to the single managed outbound
+  - id: inbound-manager
+    package: github.com/xtls/xray-core/main/foloinbound
+    role: empty feature-compatible manager; no local socket/listener creation
+  - id: outbound-manager
+    package: github.com/xtls/xray-core/app/proxyman/outbound
+    role: create the single VLESS outbound handler
+  - id: statistics
+    package: github.com/xtls/xray-core/app/stats
+    role: expose the bounded counters consumed by the wrapper ABI
+protocolPath:
+  proxy:
+    - package: github.com/xtls/xray-core/proxy/vless/outbound
+      capability: VLESS client
+  transport:
+    - package: github.com/xtls/xray-core/transport/internet/tcp
+      capability: TCP
+    - package: github.com/xtls/xray-core/transport/internet/tls
+      capability: TLS/uTLS support required by Reality
+    - package: github.com/xtls/xray-core/transport/internet/reality
+      capability: Reality client
+  vlessFeatures:
+    - XTLS Vision
+    - XUDP through the VLESS outbound path
+excluded:
+  protocols:
+    - Shadowsocks and Shadowsocks 2022
+    - VMess
+    - Trojan
+    - SOCKS and HTTP proxy listeners
+    - WireGuard
+    - SSH
+    - Dokodemo-door
+  transports:
+    - WebSocket
+    - gRPC
+    - HTTPUpgrade
+    - SplitHTTP
+    - mKCP
+    - QUIC
+    - DomainSocket
+  services:
+    - generic Xray JSON/infra-conf parser
+    - API/command server
+    - local inbound listener workers
+    - reverse proxy
+    - observatory and burst observatory
+    - metrics server
+restorePolicy:
+  rule: >-
+    Restore only through a new distro profile and patch entry after product,
+    security and license review. Do not re-enable a package by importing it
+    from the private client repository.
+  requiredRecords:
+    - module dependency diff
+    - license audit
+    - binary SBOM
+    - runtime and memory budget update

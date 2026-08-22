@@ -46,3 +46,29 @@ patches:
       - upstream/xray-core/transport/internet/quic/quic_test.go
     upstreamStatus: not-submitted
     rollback: restore the locked pristine archives and do not link this patch
+
+  - id: 0002-folo-first-release-module-pruning
+    status: applied-local
+    license: MPL-2.0
+    purpose:
+      - Replace generic main/json and infra/conf loading with the versioned Folo-only JSON boundary.
+      - Remove Xray local listener workers by registering a no-op inbound manager for Packet Tunnel ownership.
+      - Keep only VLESS outbound, TCP, Reality/TLS and the required dispatcher/statistics path.
+      - Record first-release module, resource and restore-policy gates in compliance profiles.
+    modified:
+      - upstream/xray-core/main/distro/folo/folo.go
+      - upstream/xray-core/main/folojson/folojson.go
+      - upstream/xray-core/main/folojson/folojson_test.go
+      - upstream/xray-core/main/foloinbound/inbound.go
+      - build/folo_build_xcframework.sh
+      - compliance/distro-v1.yml
+      - compliance/mobile-tuning-v1.yml
+      - compliance/MODULE_DIFF_V1.md
+      - compliance/fixtures/folo-vless-reality-v1.json
+      - scripts/audit_first_release_modules.sh
+    removed:
+      - github.com/xtls/xray-core/main/json from Folo target closure
+      - github.com/xtls/xray-core/infra/conf from Folo target closure
+      - github.com/xtls/xray-core/app/proxyman/inbound from Folo target closure
+    upstreamStatus: not-submitted
+    rollback: remove the 0002 Folo distro registration and restore the stage-08 Folo import list
