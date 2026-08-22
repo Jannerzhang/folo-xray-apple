@@ -23,7 +23,7 @@ required=(
 )
 
 for package in "${required[@]}"; do
-  if ! rg -Fxq "$package" "$deps_file"; then
+  if ! grep -Fxq "$package" "$deps_file"; then
     echo "required package missing: $package" >&2
     exit 1
   fi
@@ -59,7 +59,7 @@ forbidden_patterns=(
 )
 
 for package in "${forbidden_patterns[@]}"; do
-  if rg -Fxq "$package" "$deps_file"; then
+  if grep -Fxq "$package" "$deps_file"; then
     echo "forbidden first-release package linked: $package" >&2
     exit 1
   fi
