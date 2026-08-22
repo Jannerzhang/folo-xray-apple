@@ -14,8 +14,10 @@ ruby scripts/verify_upstream_lock.rb
 
 GOTOOLCHAIN=local go test github.com/xtls/xray-core/main/distro/folo
 GOTOOLCHAIN=local go test github.com/xtls/libxray/xray
+GOTOOLCHAIN=local go test github.com/Jannerzhang/folo-xray-apple/apple-wrapper
 
 for target in \
+  github.com/Jannerzhang/folo-xray-apple/apple-wrapper \
   github.com/xtls/xray-core/main/distro/folo \
   github.com/xtls/libxray/xray
 do
