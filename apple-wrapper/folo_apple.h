@@ -17,6 +17,9 @@ enum FoloXrayStatusCode {
   FOLO_XRAY_START_FAILED = 4,
   FOLO_XRAY_STOP_FAILED = 5,
   FOLO_XRAY_INTERNAL_ERROR = 6,
+  FOLO_XRAY_IO_ERROR = 7,
+  FOLO_XRAY_EOF = 8,
+  FOLO_XRAY_RESOURCE_LIMIT = 9,
 };
 
 enum FoloXrayState {
@@ -39,6 +42,42 @@ int32_t FoloXrayPacketBridgeStart(int32_t fd);
 int32_t FoloXrayPacketBridgeStop(void);
 int32_t FoloXrayPacketBridgeState(void);
 char *FoloXrayPacketBridgeCopyStatsJSON(void);
+
+// Stage-13 transport seams. These APIs operate only after FoloXrayStartJSON
+// has loaded the approved managed profile. They expose bounded TCP/UDP
+// sessions to the private PacketFlow adapter; they do not create listeners,
+// accept generic JSON, or expose Xray's internal types.
+int32_t FoloXrayTCPConnect(const uint8_t *address_bytes,
+                           size_t address_length,
+                           uint16_t port,
+                           uint64_t *handle);
+int32_t FoloXrayTCPRead(uint64_t handle,
+                        uint8_t *buffer,
+                        size_t capacity,
+                        size_t *read_length);
+int32_t FoloXrayTCPWrite(uint64_t handle,
+                         const uint8_t *buffer,
+                         size_t length,
+                         size_t *written_length);
+int32_t FoloXrayTCPClose(uint64_t handle);
+
+int32_t FoloXrayUDPConnect(uint64_t *handle);
+int32_t FoloXrayUDPRead(uint64_t handle,
+                        uint8_t *buffer,
+                        size_t capacity,
+                        size_t *read_length,
+                        uint8_t *source_address,
+                        size_t source_capacity,
+                        uint8_t *source_family,
+                        uint16_t *source_port);
+int32_t FoloXrayUDPWrite(uint64_t handle,
+                         const uint8_t *buffer,
+                         size_t length,
+                         const uint8_t *destination_address,
+                         size_t destination_length,
+                         uint16_t destination_port,
+                         size_t *written_length);
+int32_t FoloXrayUDPClose(uint64_t handle);
 
 char *FoloXrayCopyVersion(void);
 char *FoloXrayCopyLastError(void);
