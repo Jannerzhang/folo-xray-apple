@@ -18,6 +18,7 @@ die() {
 command -v go >/dev/null 2>&1 || die "go is required"
 command -v xcodebuild >/dev/null 2>&1 || die "xcodebuild is required"
 command -v xcrun >/dev/null 2>&1 || die "xcrun is required"
+command -v file >/dev/null 2>&1 || die "file is required"
 command -v ruby >/dev/null 2>&1 || die "ruby is required to read the lock file"
 
 [[ -f "${LOCK_FILE}" ]] || die "missing ${LOCK_FILE}"
@@ -124,6 +125,27 @@ FRAMEWORK_SLICE_SIMULATOR="${FRAMEWORK_ROOT}/ios-arm64_x86_64-simulator/libFoloX
 [[ -f "${FRAMEWORK_SLICE_DEVICE}" ]] || die "device slice missing from XCFramework"
 [[ -f "${FRAMEWORK_SLICE_SIMULATOR}" ]] || die "simulator slice missing from XCFramework"
 
+FIXTURE_ROOT="${BUILD_ROOT}/fixture"
+mkdir -p "${FIXTURE_ROOT}"
+xcrun --sdk iphonesimulator clang \
+  -arch arm64 \
+  -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
+  -miphonesimulator-version-min="${MIN_IOS}" \
+  -I "${FRAMEWORK_ROOT}/ios-arm64_x86_64-simulator/Headers" \
+  "${REPO_ROOT}/build/fixture/folo_xray_link_fixture.c" \
+  "${FRAMEWORK_SLICE_SIMULATOR}" \
+  -framework CoreFoundation \
+  -framework Security \
+  -lresolv \
+  -o "${FIXTURE_ROOT}/FoloXrayLinkFixture"
+file "${FIXTURE_ROOT}/FoloXrayLinkFixture" | tee "${FIXTURE_ROOT}/file.txt"
+otool -l "${FIXTURE_ROOT}/FoloXrayLinkFixture" | awk '
+  /LC_BUILD_VERSION/ { found = 1 }
+  found && /platform|minos|sdk/ { print }
+  found && /sdk/ { exit }
+' | tee "${FIXTURE_ROOT}/build-version.txt"
+rg -q 'minos 17\.0' "${FIXTURE_ROOT}/build-version.txt" || die "link fixture deployment target is not iOS 17.0"
+
 mkdir -p "${BUILD_ROOT}/symbols"
 nm -gU "${FRAMEWORK_SLICE_DEVICE}" | awk '$3 ~ /^_FoloXray/ {print $3}' | sort -u > "${BUILD_ROOT}/symbols/device.txt"
 nm -gU "${FRAMEWORK_SLICE_SIMULATOR}" | awk '$3 ~ /^_FoloXray/ {print $3}' | sort -u > "${BUILD_ROOT}/symbols/simulator.txt"
@@ -170,6 +192,10 @@ hashes:
   normalizedXcframework: ${FRAMEWORK_SHA256}
 licenseBoundary: scripts/check_license_boundary.sh
 sourceOffer: compliance/SOURCE_OFFER.md
+linkFrameworks:
+  - CoreFoundation
+  - Security
+  - libresolv
 releaseReady: false
 EOF
 

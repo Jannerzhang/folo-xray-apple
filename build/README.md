@@ -17,7 +17,10 @@ produces an unsigned, local-only artifact under
 - `symbols/` and `build.log` for audit evidence.
 
 `fixture/folo_xray_link_fixture.c` is a minimal iOS 17 link fixture. It only
-calls version and state functions and never starts the engine.
+calls version and state functions and never starts the engine. The cgo archive
+requires the system frameworks `CoreFoundation`, `Security`, and `libresolv`,
+which are recorded in the artifact manifest and are not bundled third-party
+code.
 
 Generated artifacts are ignored and are not committed to either the public
 core repository or the private client repository. The artifact is not release
