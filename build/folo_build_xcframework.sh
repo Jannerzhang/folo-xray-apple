@@ -100,7 +100,7 @@ build_slice() {
         -o "${output_dir}/libFoloXray.a" \
         .
   )
-  ruby -e 'path = ARGV.fetch(0); bytes = File.binread(path); raise "not an ar archive" unless bytes.start_with?("!<arch>\\n"); offset = 8; while offset < bytes.bytesize; raise "truncated ar header" if offset + 60 > bytes.bytesize; size = bytes.byteslice(offset + 48, 10).to_i; bytes[offset + 16, 12] = "0".ljust(12); offset += 60 + size; offset += 1 if offset.odd?; end; File.binwrite(path, bytes)' "${output_dir}/libFoloXray.a"
+  ruby -e 'path = ARGV.fetch(0); bytes = File.binread(path); raise "not an ar archive" unless bytes.start_with?("!<arch>\n"); offset = 8; while offset < bytes.bytesize; raise "truncated ar header" if offset + 60 > bytes.bytesize; size = bytes.byteslice(offset + 48, 10).to_i; bytes[offset + 16, 12] = "0".ljust(12); offset += 60 + size; offset += 1 if offset.odd?; end; File.binwrite(path, bytes)' "${output_dir}/libFoloXray.a"
 }
 
 build_slice ios-arm64 ios arm64 iphoneos arm64
