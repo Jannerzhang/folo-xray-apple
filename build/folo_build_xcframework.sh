@@ -75,7 +75,7 @@ build_slice() {
   clang="$(xcrun --sdk "${sdk}" --find clang)"
   clangxx="$(xcrun --sdk "${sdk}" --find clang++)"
   mkdir -p "${output_dir}"
-  flags="-isysroot ${sdk_path} -mios-version-min=${MIN_IOS} -arch ${arch}"
+  flags="-isysroot ${sdk_path} -m${sdk}-version-min=${MIN_IOS} -arch ${arch}"
 
   (
     cd "${REPO_ROOT}/apple-wrapper"
