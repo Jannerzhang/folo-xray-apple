@@ -108,6 +108,7 @@ build_slice ios-simulator-x86_64 ios amd64 iphonesimulator x86_64
 cp "${REPO_ROOT}/apple-wrapper/folo_apple.h" "${HEADER_ROOT}/folo_apple.h"
 cp "${REPO_ROOT}/apple-wrapper/module.modulemap" "${HEADER_ROOT}/module.modulemap"
 
+mkdir -p "${SLICE_ROOT}/ios-simulator"
 lipo -create \
   "${SLICE_ROOT}/ios-simulator-arm64/libFoloXray.a" \
   "${SLICE_ROOT}/ios-simulator-x86_64/libFoloXray.a" \
