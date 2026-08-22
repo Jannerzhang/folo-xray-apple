@@ -21,4 +21,5 @@ observations:
   - The XCFramework artifact manifest records the fixed toolchain, slices, system link frameworks and exported-symbol allowlist.
   - The stage-09 Folo distro closure is 389 packages and excludes generic infra/conf, local listener workers, API/command, observatory and legacy proxy/transport packages.
   - The stage-09 configuration boundary is main/folojson; the mobile wrapper accepts only the versioned VLESS/TCP/Reality schema.
+  - Stage 10 adds the MPL-2.0 main/folotun framing endpoint and a private Swift PacketFlow bridge PoC; this does not add a local listener or a new third-party protocol implementation.
   - The framework remains local-only and releaseReady=false until the source offer and later Packet Tunnel gates are complete.

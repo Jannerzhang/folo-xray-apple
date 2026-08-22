@@ -31,6 +31,15 @@ int32_t FoloXrayStop(void);
 int32_t FoloXrayState(void);
 int32_t FoloXrayLastErrorCode(void);
 
+// Stage-10 transport PoC. The caller transfers ownership of fd after a
+// successful start. The socket carries Folo PacketFlow v1 frames, not a
+// generic Xray listener protocol. Stop is idempotent and closes the adopted
+// endpoint exactly once.
+int32_t FoloXrayPacketBridgeStart(int32_t fd);
+int32_t FoloXrayPacketBridgeStop(void);
+int32_t FoloXrayPacketBridgeState(void);
+char *FoloXrayPacketBridgeCopyStatsJSON(void);
+
 char *FoloXrayCopyVersion(void);
 char *FoloXrayCopyLastError(void);
 char *FoloXrayCopyStatsJSON(void);

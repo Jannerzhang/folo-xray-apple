@@ -29,6 +29,7 @@ XCFramework binary SBOM and exported-symbol audit.
 | Folo public Apple wrapper | local commit | MPL-2.0 | [apple-wrapper/LICENSE](../apple-wrapper/LICENSE) |
 | Folo first-release JSON boundary | local commit | MPL-2.0 | [distro-v1.yml](distro-v1.yml) |
 | Folo empty inbound manager | local commit | MPL-2.0 | [distro-v1.yml](distro-v1.yml) |
+| Folo PacketFlow framing endpoint | local commit | MPL-2.0 | [upstream/xray-core/main/folotun](../upstream/xray-core/main/folotun) |
 | XTLS/libXray | v3.1.0 | MIT | [upstream/libXray/LICENSE](../upstream/libXray/LICENSE) |
 | XTLS/Xray-core | v1.8.24 | MPL-2.0 | [upstream/xray-core/LICENSE](../upstream/xray-core/LICENSE) |
 | XTLS/reality | 48f0b2d5ed6d | MPL-2.0 | https://github.com/XTLS/reality/blob/48f0b2d5ed6d/LICENSE |

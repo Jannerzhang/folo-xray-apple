@@ -11,4 +11,5 @@ import (
 	_ "github.com/xtls/xray-core/app/proxyman/outbound"
 	_ "github.com/xtls/xray-core/main/foloinbound"
 	_ "github.com/xtls/xray-core/main/folojson"
+	_ "github.com/xtls/xray-core/main/folotun"
 )
