@@ -4,8 +4,15 @@ This repository is a multi-license source distribution. No repository-wide licen
 
 - Xray-core files retain their upstream MPL-2.0 notices and obligations.
 - libXray files retain the exact license found in the approved locked upstream revision.
+- The pristine Xray v1.8.24 dependency graph included GPL-3.0 sing modules;
+  those modules and the first-release source paths that require them are
+  removed by the public patch series before any Folo artifact is built.
+- A license scan is run against the actual first-release import closure, not
+  only the top-level Xray license file.
 - Original wrapper, build, and compliance files must include an approved SPDX identifier before release.
 - All direct and transitive dependencies must be locked and recorded in the SBOM.
 - Unknown, GPL, AGPL, LGPL, SSPL, non-commercial, no-derivatives, source-available restrictions, or unapproved custom licenses block release under the Folo closed-source policy.
 
 Every App release must link to the exact public source tag and corresponding artifact/build evidence.
+The current baseline is local-only and must not be represented as an already
+published source offer.

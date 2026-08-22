@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+auditDate: 2026-08-23
+policy: LICENSING.md
+targets:
+  - github.com/xtls/xray-core/main/distro/folo
+  - github.com/xtls/libxray/xray
+tool:
+  name: github.com/google/go-licenses
+  version: v1.6.0
+result: PASS
+prohibitedLicenses: []
+prohibitedModuleIdentifiers:
+  - github.com/sagernet/sing
+  - github.com/sagernet/sing-shadowsocks
+observations:
+  - The pristine Xray v1.8.24 module graph contained GPL-3.0 sing dependencies.
+  - Patch 0001 removes those imports and the corresponding first-release source paths.
+  - The current import-closure scan reports only MIT, BSD, Apache-2.0 and MPL-2.0 components.
+  - Full framework SBOM and binary-symbol audit remains a stage-08 release gate.

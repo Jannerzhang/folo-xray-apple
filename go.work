@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: MPL-2.0
+// The public core build resolves libXray against the locked, locally patched
+// Xray module. No floating network module is accepted for release builds.
+go 1.23.1
+
+use (
+	./upstream/xray-core
+	./upstream/libXray
+)

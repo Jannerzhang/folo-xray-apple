@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+base:
+  xrayCore: v1.8.24@6baad79f9881ee2cf75bdc825b3e2e92b289477a
+  libXray: v3.1.0@26d3df3c5bb36bd7962fa34fae5c32fb0f354fe6
+status: applied-local
+
+patches:
+  - id: 0001-folo-vless-reality-license-boundary
+    status: applied-local
+    license: MPL-2.0
+    purpose:
+      - Remove GPL-3.0 sing and sing-shadowsocks build inputs from the first-release closure.
+      - Exclude unapproved Shadowsocks 2022, WireGuard, UoT and sing bridge paths.
+      - Register only the managed VLESS/TCP/Reality first-release distro.
+      - Keep the generic Xray source in the public repository for review and rollback.
+    modified:
+      - upstream/xray-core/go.mod
+      - upstream/xray-core/go.sum
+      - upstream/xray-core/main/main.go
+      - upstream/xray-core/core/xray_test.go
+      - upstream/xray-core/infra/conf/xray.go
+      - upstream/xray-core/infra/conf/transport_authenticators.go
+      - upstream/xray-core/infra/conf/transport_internet.go
+      - upstream/xray-core/transport/internet/system_dialer.go
+      - upstream/xray-core/transport/internet/system_listener.go
+      - upstream/xray-core/app/proxyman/outbound/handler.go
+      - upstream/libXray/go.mod
+      - upstream/libXray/go.sum
+      - upstream/libXray/xray/xray.go
+      - upstream/xray-core/main/distro/folo/folo.go
+    removed:
+      - upstream/xray-core/app/proxyman/outbound/uot.go
+      - upstream/xray-core/common/singbridge/**
+      - upstream/xray-core/infra/conf/shadowsocks.go
+      - upstream/xray-core/infra/conf/shadowsocks_test.go
+      - upstream/xray-core/infra/conf/wireguard.go
+      - upstream/xray-core/infra/conf/wireguard_test.go
+      - upstream/xray-core/proxy/shadowsocks_2022/**
+      - upstream/xray-core/proxy/wireguard/**
+      - upstream/xray-core/transport/internet/headers/wireguard/**
+      - upstream/xray-core/testing/scenarios/shadowsocks_2022_test.go
+      - upstream/xray-core/testing/scenarios/wireguard_test.go
+      - upstream/xray-core/transport/internet/system_listener_test.go
+      - upstream/xray-core/transport/internet/header_test.go
+      - upstream/xray-core/transport/internet/quic/quic_test.go
+    upstreamStatus: not-submitted
+    rollback: restore the locked pristine archives and do not link this patch
