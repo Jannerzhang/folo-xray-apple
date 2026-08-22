@@ -31,14 +31,16 @@ resourceBudget:
   budgetIs: hard review gate, not a promise of a fixed iOS process quota
   deviceStaticLibraryBytes:
     beforeStage09: 30758296
-    target: 30758296
+    afterStage09: 17539696
+    target: 18000000
     rationale: >-
-      The first stage-09 gate is dependency and listener removal. A lower
-      binary size is desirable but cannot replace runtime Packet Tunnel
-      memory measurement on supported devices.
+      The stage-09 build is below the 18 MB static-library budget after the
+      dependency and listener removal. This does not replace runtime Packet
+      Tunnel memory measurement on supported devices.
   simulatorFatStaticLibraryBytes:
     beforeStage09: 60021480
-    target: 60021480
+    afterStage09: 34537680
+    target: 36000000
   runtimeMemory:
     targetBytes: 15728640
     escalationBytes: 25165824

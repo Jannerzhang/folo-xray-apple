@@ -27,7 +27,22 @@
 
 ## 资源预算
 
-阶段 08 构建测得的静态库尺寸为：设备 `30,758,296` bytes，模拟器 fat slice `60,021,480` bytes。阶段 09 的首要硬门禁是依赖闭包和本地 listener/API 清除；静态库尺寸目标暂沿用该基线，待裁剪后的 XCFramework 构建完成后用实际 manifest 覆盖，不以“估计节省”替代测量。
+阶段 08 构建测得的静态库尺寸为：设备 `30,758,296` bytes，模拟器 fat slice `60,021,480` bytes。阶段 09 的同一提交干净重建产物为：设备 `17,539,696` bytes（减少 `42.98%`），模拟器 fat slice `34,537,680` bytes（减少 `42.46%`）。实际记录位于本地 artifact manifest：
+
+`artifacts/xcframework/801752a43822d144b9b0920ae85eb3a03f3815a7/artifact-manifest.yml`
+
+本地构建还完成了 XCFramework 和 manifest 的 `diff -rq`/文本比对，结果为 `reproducible_build=pass`。产物仍为 `localOnly=true`、`releaseReady=false`，不提交二进制、不推送远端。
+
+构建证据摘要：
+
+| 字段 | 值 |
+| --- | --- |
+| source revision | `801752a43822d144b9b0920ae85eb3a03f3815a7` |
+| Go / Xcode / SDK | `go1.26.4` / `26.4.1 (17E202)` / `26.4` |
+| iOS deployment target | `17.0` |
+| device static library SHA-256 | `72464cb10fb19d58e02c18240a33c62a655741e01c6f4f8c738419306648fe0d` |
+| simulator static library SHA-256 | `b56164a3731beb7dfdc9d5a030d3c3ab94da687b4eec4754f16a45ff2ce6889d` |
+| normalized XCFramework SHA-256 | `7764a15b0f3050c526fdb220bdfeaee831b09eaccd2aedc3118f70c9edd5c687` |
 
 移动端运行预算记录在 [`mobile-tuning-v1.yml`](mobile-tuning-v1.yml)：配置上限 4 MiB、单实例、零 Xray 网络 listener、峰值内存目标 15 MiB，25 MiB 为升级调查阈值。内存数值必须在后续真机 Packet Tunnel soak 中测量，不能由 Go 依赖数量推断。
 
