@@ -1,0 +1,27 @@
+schemaVersion: 1
+go:
+  version: go1.26.4
+  toolchainMode: local
+xcode:
+  version: 26.4.1
+  build: 17E202
+sdk:
+  name: iphoneos
+  version: 26.4
+deploymentTarget: "17.0"
+targets:
+  - name: ios-arm64
+    goos: ios
+    goarch: arm64
+    sdk: iphoneos
+    arch: arm64
+  - name: ios-simulator-arm64
+    goos: ios
+    goarch: arm64
+    sdk: iphonesimulator
+    arch: arm64
+  - name: ios-simulator-x86_64
+    goos: ios
+    goarch: amd64
+    sdk: iphonesimulator
+    arch: x86_64
