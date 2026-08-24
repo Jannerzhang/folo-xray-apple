@@ -12,6 +12,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"runtime"
+	"runtime/debug"
 	"sync"
 	"time"
 	"unsafe"
@@ -21,6 +23,12 @@ import (
 	_ "github.com/xtls/xray-core/main/distro/folo"
 	"github.com/xtls/xray-core/main/folotun"
 )
+
+func init() {
+	// Set memory limit to 12MB and aggressive GC for iOS NetworkExtension Jetsam constraints
+	debug.SetMemoryLimit(12 * 1024 * 1024)
+	debug.SetGCPercent(20)
+}
 
 const maxConfigBytes = 4 * 1024 * 1024
 
@@ -283,6 +291,8 @@ func FoloXrayStartJSON(configBytes *C.uint8_t, configLength C.size_t) C.int32_t 
 	engine.state = stateRunning
 	engine.startedAt = time.Now()
 	clearErrorLocked()
+	runtime.GC()
+	debug.FreeOSMemory()
 	return C.int32_t(statusOK)
 }
 
@@ -294,18 +304,24 @@ func FoloXrayStop() C.int32_t {
 	if engine.instance == nil {
 		engine.state = stateIdle
 		clearErrorLocked()
+		runtime.GC()
+		debug.FreeOSMemory()
 		return C.int32_t(statusOK)
 	}
 	closeTransportSessions()
 	if err := engine.instance.Close(); err != nil {
 		engine.instance = nil
 		engine.state = stateIdle
+		runtime.GC()
+		debug.FreeOSMemory()
 		return C.int32_t(setErrorLocked(statusStopFailed, "engine stop failed"))
 	}
 	engine.instance = nil
 	engine.state = stateIdle
 	engine.startedAt = time.Time{}
 	clearErrorLocked()
+	runtime.GC()
+	debug.FreeOSMemory()
 	return C.int32_t(statusOK)
 }
 
