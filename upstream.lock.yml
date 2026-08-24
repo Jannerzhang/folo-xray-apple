@@ -24,8 +24,8 @@ baseline:
       sourceTree: aed1175b23a1e42193d61eb75c4d542a7d004769
       sourceArchiveSha256: ffa2562a26d6677fa8e5f32b2ce92b7cb7fa33b7c45f26e47fbf9f8ec83e76e7
       importedPath: upstream/xray-core
-      patchedTreeDigest: 173e41d938de820463cf49925eea48291e550ac9b8b99544ff5a204f66892690
-      fileCount: 808
+      patchedTreeDigest: 956d048be5739de7c1b83bee58eaaca9e7cbc57039d17db7da828747ce17f263
+      fileCount: 807
       license:
         spdx: MPL-2.0
         file: upstream/xray-core/LICENSE
