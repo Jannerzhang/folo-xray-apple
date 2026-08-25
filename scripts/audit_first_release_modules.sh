@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
+export PATH="/usr/local/go/bin:${PATH}"
+
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
