@@ -28,6 +28,7 @@ import (
 
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/main/folotun"
+	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
 
 const (
@@ -50,9 +51,11 @@ var (
 )
 
 type netstackRuntime struct {
-	stack    *stack.Stack
-	link     *channel.Endpoint
-	instance *core.Instance
+	stack        *stack.Stack
+	link         *channel.Endpoint
+	instance     *core.Instance
+	router       *router.Router
+	directDialer *router.DirectDialer
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -83,9 +86,12 @@ func (n *netstackPacketNotification) WriteNotify() {
 	}
 }
 
-func newNetstackRuntime(instance *core.Instance) (*netstackRuntime, error) {
+func newNetstackRuntime(instance *core.Instance, r *router.Router) (*netstackRuntime, error) {
 	if instance == nil {
 		return nil, errors.New("xray instance is nil")
+	}
+	if r == nil {
+		r = router.NewRouter(router.Config{Mode: router.ModeRule})
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -126,13 +132,15 @@ func newNetstackRuntime(instance *core.Instance) (*netstackRuntime, error) {
 
 	link := channel.New(netstackPacketQueueDepth, netstackMTU, "")
 	runtime := &netstackRuntime{
-		stack:     s,
-		link:      link,
-		instance:  instance,
-		ctx:       ctx,
-		cancel:    cancel,
-		tcpTokens: make(chan struct{}, netstackMaxConcurrentTCP),
-		udpTokens: make(chan struct{}, netstackMaxConcurrentUDP),
+		stack:        s,
+		link:         link,
+		instance:     instance,
+		router:       r,
+		directDialer: router.NewDirectDialer(),
+		ctx:          ctx,
+		cancel:       cancel,
+		tcpTokens:    make(chan struct{}, netstackMaxConcurrentTCP),
+		udpTokens:    make(chan struct{}, netstackMaxConcurrentUDP),
 	}
 	runtime.notify = &netstackPacketNotification{ready: make(chan struct{}, 1)}
 
@@ -303,11 +311,48 @@ func (n *netstackRuntime) startWork(fn func()) bool {
 func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port uint16) {
 	defer inbound.Close()
 
-	outbound, err := folotun.DialTCP(n.ctx, n.instance, destination, port)
+	// 1. Read first packet chunk to sniff TLS SNI or HTTP host
+	peekBuf := make([]byte, 2048)
+	_ = inbound.SetReadDeadline(time.Now().Add(2 * time.Second))
+	nRead, _ := inbound.Read(peekBuf)
+	_ = inbound.SetReadDeadline(time.Time{})
+
+	var sniffedDomain string
+	if nRead > 0 {
+		sniffedDomain = SniffDomain(peekBuf[:nRead])
+	}
+
+	// 2. Routing decision
+	parsedIP := net.ParseIP(destination)
+	action := n.router.Route(sniffedDomain, parsedIP, port)
+
+	if action == router.ActionBlock {
+		return
+	}
+
+	var outbound net.Conn
+	var err error
+
+	if action == router.ActionDirect {
+		outbound, err = n.directDialer.DialTCP(n.ctx, destination, port)
+	} else {
+		target := destination
+		if sniffedDomain != "" {
+			target = sniffedDomain
+		}
+		outbound, err = folotun.DialTCP(n.ctx, n.instance, target, port)
+	}
+
 	if err != nil {
 		return
 	}
 	defer outbound.Close()
+
+	if nRead > 0 {
+		if _, err := outbound.Write(peekBuf[:nRead]); err != nil {
+			return
+		}
+	}
 
 	copyDone := make(chan struct{}, 2)
 	go func() {
@@ -355,6 +400,13 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 		return false
 	}
 
+	parsedIP := net.ParseIP(id.LocalAddress.String())
+	action := n.router.Route("", parsedIP, id.LocalPort)
+	if action == router.ActionBlock {
+		<-n.udpTokens
+		return true
+	}
+
 	var wq waiter.Queue
 	ep, err := request.CreateEndpoint(&wq)
 	if err != nil {
@@ -362,7 +414,25 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 		return false
 	}
 	inbound := gonet.NewUDPConn(&wq, ep)
-	outbound, dialErr := folotun.DialUDP(n.ctx, n.instance)
+
+	var outbound net.PacketConn
+	var dialErr error
+
+	if action == router.ActionDirect {
+		var directConn net.Conn
+		directConn, dialErr = n.directDialer.DialUDP(n.ctx, destination.IP.String(), id.LocalPort)
+		if dialErr == nil {
+			if pc, ok := directConn.(net.PacketConn); ok {
+				outbound = pc
+			} else {
+				_ = directConn.Close()
+				outbound, dialErr = net.ListenPacket("udp", "")
+			}
+		}
+	} else {
+		outbound, dialErr = folotun.DialUDP(n.ctx, n.instance)
+	}
+
 	if dialErr != nil {
 		<-n.udpTokens
 		_ = inbound.Close()
@@ -472,13 +542,13 @@ var netstack = struct {
 	runtime *netstackRuntime
 }{}
 
-func startNetstack(instance *core.Instance) error {
+func startNetstack(instance *core.Instance, r *router.Router) error {
 	netstack.Lock()
 	defer netstack.Unlock()
 	if netstack.runtime != nil {
 		return errors.New("netstack is already running")
 	}
-	runtime, err := newNetstackRuntime(instance)
+	runtime, err := newNetstackRuntime(instance, r)
 	if err != nil {
 		return err
 	}

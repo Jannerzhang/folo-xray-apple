@@ -22,6 +22,7 @@ import (
 	featureStats "github.com/xtls/xray-core/features/stats"
 	_ "github.com/xtls/xray-core/main/distro/folo"
 	"github.com/xtls/xray-core/main/folotun"
+	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
 
 var scavengerOnce sync.Once
@@ -68,15 +69,17 @@ const (
 
 var engine = struct {
 	sync.Mutex
-	instance  *core.Instance
-	state     int32
-	lastCode  int32
-	lastError string
-	startedAt time.Time
+	instance     *core.Instance
+	routerConfig router.Config
+	state        int32
+	lastCode     int32
+	lastError    string
+	startedAt    time.Time
 }{
-	state:     stateIdle,
-	lastCode:  statusOK,
-	lastError: "ok",
+	state:        stateIdle,
+	lastCode:     statusOK,
+	lastError:    "ok",
+	routerConfig: router.Config{Mode: router.ModeRule},
 }
 
 var packetBridge = struct {
@@ -270,7 +273,8 @@ func FoloXrayNetstackStart() C.int32_t {
 	if engine.instance == nil || engine.state != stateRunning {
 		return C.int32_t(setErrorLocked(statusInvalidState, "engine is not running"))
 	}
-	if err := startNetstack(engine.instance); err != nil {
+	r := router.NewRouter(engine.routerConfig)
+	if err := startNetstack(engine.instance, r); err != nil {
 		return C.int32_t(setErrorLocked(statusStartFailed, "netstack start failed"))
 	}
 	clearErrorLocked()
@@ -346,6 +350,17 @@ func FoloXrayStartJSON(configBytes *C.uint8_t, configLength C.size_t) C.int32_t 
 		_ = instance.Close()
 		return C.int32_t(setErrorLocked(statusStartFailed, "engine start failed"))
 	}
+
+	var parsedRouting struct {
+		Routing *router.Config `json:"routing"`
+	}
+	_ = json.Unmarshal(config, &parsedRouting)
+	if parsedRouting.Routing != nil {
+		engine.routerConfig = *parsedRouting.Routing
+	} else {
+		engine.routerConfig = router.Config{Mode: router.ModeRule}
+	}
+
 	engine.instance = instance
 	engine.state = stateRunning
 	engine.startedAt = time.Now()

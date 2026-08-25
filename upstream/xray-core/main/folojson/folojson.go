@@ -51,6 +51,17 @@ type Config struct {
 	Version  int      `json:"version"`
 	Mode     string   `json:"mode"`
 	Outbound Outbound `json:"outbound"`
+	Routing  *Routing `json:"routing,omitempty"`
+}
+
+type Routing struct {
+	Mode                string   `json:"mode,omitempty"`
+	CustomDirectDomains []string `json:"customDirectDomains,omitempty"`
+	CustomProxyDomains  []string `json:"customProxyDomains,omitempty"`
+	CustomBlockDomains  []string `json:"customBlockDomains,omitempty"`
+	CustomDirectIPs     []string `json:"customDirectIPs,omitempty"`
+	CustomProxyIPs      []string `json:"customProxyIPs,omitempty"`
+	CustomBlockIPs      []string `json:"customBlockIPs,omitempty"`
 }
 
 type Outbound struct {
@@ -128,6 +139,14 @@ func (c Config) Build() (*core.Config, error) {
 	case vmessProfileVer:
 		if c.Outbound.Protocol != "vmess" {
 			return nil, errors.New("Folo VMess configuration requires protocol=vmess")
+		}
+	}
+
+	if c.Routing != nil {
+		switch c.Routing.Mode {
+		case "", "rule", "global", "direct":
+		default:
+			return nil, errors.New("unsupported routing mode")
 		}
 	}
 
