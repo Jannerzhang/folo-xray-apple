@@ -3,8 +3,8 @@ go:
   version: go1.26.4
   toolchainMode: local
 xcode:
-  version: 26.4.1
-  build: 17E202
+  version: 26.4
+  build: 17E192
 sdk:
   name: iphoneos
   version: 26.4
