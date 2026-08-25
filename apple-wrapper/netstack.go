@@ -331,7 +331,12 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 		}
 		copyDone <- struct{}{}
 	}()
+
+	// Wait for the first direction to finish
 	<-copyDone
+	// Unblock and cleanly terminate the other direction after 5s grace period to avoid token exhaustion
+	_ = inbound.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = outbound.SetDeadline(time.Now().Add(5 * time.Second))
 	<-copyDone
 }
 
@@ -391,6 +396,7 @@ func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketCo
 		buffer := *bufPtr
 		defer udpBufferPool.Put(bufPtr)
 		for {
+			_ = inbound.SetReadDeadline(time.Now().Add(30 * time.Second))
 			length, _, err := inbound.ReadFrom(buffer)
 			if err != nil {
 				break
@@ -406,6 +412,7 @@ func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketCo
 		buffer := *bufPtr
 		defer udpBufferPool.Put(bufPtr)
 		for {
+			_ = outbound.SetReadDeadline(time.Now().Add(30 * time.Second))
 			length, _, err := outbound.ReadFrom(buffer)
 			if err != nil {
 				break

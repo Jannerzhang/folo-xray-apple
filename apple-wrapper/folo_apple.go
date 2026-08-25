@@ -29,7 +29,7 @@ var scavengerOnce sync.Once
 func startScavenger() {
 	scavengerOnce.Do(func() {
 		go func() {
-			ticker := time.NewTicker(2 * time.Second)
+			ticker := time.NewTicker(1 * time.Second)
 			for range ticker.C {
 				debug.FreeOSMemory()
 			}
@@ -38,9 +38,9 @@ func startScavenger() {
 }
 
 func init() {
-	// Restrict Go runtime threads and memory footprint for iOS NetworkExtension 50MB Jetsam limit
+	// Restrict Go runtime threads and memory footprint for iOS NetworkExtension Jetsam limits
 	runtime.GOMAXPROCS(1)
-	debug.SetMemoryLimit(15 * 1024 * 1024)
+	debug.SetMemoryLimit(8 * 1024 * 1024)
 	debug.SetGCPercent(10)
 	startScavenger()
 }
