@@ -42,9 +42,10 @@ bounded PacketFlow v1 framing/loopback endpoint for validating complete
 IPv4/IPv6 packet transport over a public `SOCK_STREAM` socketpair. It does not
 parse proxy protocols or create a listener; the private Swift bridge owns
 `NEPacketTunnelFlow`, and the real VLESS/TUN data plane remains a later gate.
-Stage 13 adds bounded `FoloXrayTCP*` and `FoloXrayUDP*` outbound transport
-seams for a private MIT/Apache IP stack; these APIs do not add listeners or
-generic configuration entry points.
+Stage 14 adds the bounded `FoloXrayNetstack*` packet ABI for the private Rust
+Packet Tunnel. The ABI injects and drains complete IPv4/IPv6 packets and does
+not add listeners or generic configuration entry points. The retired Stage-13
+TCP/UDP handle ABI is intentionally absent from new XCFramework symbol tables.
 
 Generated artifacts are ignored and are not committed to either the public
 core repository or the private client repository. The artifact is not release

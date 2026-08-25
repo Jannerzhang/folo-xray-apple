@@ -55,42 +55,6 @@ int32_t FoloXrayNetstackReadPacket(uint8_t *buffer,
                                    size_t capacity,
                                    size_t *read_length);
 
-// Stage-13 transport seams. These APIs operate only after FoloXrayStartJSON
-// has loaded the approved managed profile. They expose bounded TCP/UDP
-// sessions to the private PacketFlow adapter; they do not create listeners,
-// accept generic JSON, or expose Xray's internal types.
-int32_t FoloXrayTCPConnect(const uint8_t *address_bytes,
-                           size_t address_length,
-                           uint16_t port,
-                           uint64_t *handle);
-int32_t FoloXrayTCPRead(uint64_t handle,
-                        uint8_t *buffer,
-                        size_t capacity,
-                        size_t *read_length);
-int32_t FoloXrayTCPWrite(uint64_t handle,
-                         const uint8_t *buffer,
-                         size_t length,
-                         size_t *written_length);
-int32_t FoloXrayTCPClose(uint64_t handle);
-
-int32_t FoloXrayUDPConnect(uint64_t *handle);
-int32_t FoloXrayUDPRead(uint64_t handle,
-                        uint8_t *buffer,
-                        size_t capacity,
-                        size_t *read_length,
-                        uint8_t *source_address,
-                        size_t source_capacity,
-                        uint8_t *source_family,
-                        uint16_t *source_port);
-int32_t FoloXrayUDPWrite(uint64_t handle,
-                         const uint8_t *buffer,
-                         size_t length,
-                         const uint8_t *destination_address,
-                         size_t destination_length,
-                         uint16_t destination_port,
-                         size_t *written_length);
-int32_t FoloXrayUDPClose(uint64_t handle);
-
 char *FoloXrayCopyVersion(void);
 char *FoloXrayCopyLastError(void);
 char *FoloXrayCopyStatsJSON(void);

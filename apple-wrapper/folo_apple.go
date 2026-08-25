@@ -353,7 +353,6 @@ func FoloXrayStop() C.int32_t {
 		debug.FreeOSMemory()
 		return C.int32_t(statusOK)
 	}
-	closeTransportSessions()
 	stopNetstack()
 	if err := engine.instance.Close(); err != nil {
 		engine.instance = nil

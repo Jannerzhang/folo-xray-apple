@@ -26,9 +26,9 @@ integration remains in the private folo-ios repository.
 - `FoloXrayPacketBridgeStop`, `FoloXrayPacketBridgeState`, and
   `FoloXrayPacketBridgeCopyStatsJSON` provide idempotent close/state/stats for
   that endpoint;
-- `FoloXrayTCPConnect`/`Read`/`Write`/`Close` and
-  `FoloXrayUDPConnect`/`Read`/`Write`/`Close` provide the bounded Stage-13
-  outbound transport seams used by the private PacketFlow adapter;
+- `FoloXrayNetstackStart`/`Stop` and
+  `FoloXrayNetstackWritePacket`/`ReadPacket` provide the bounded gVisor
+  netstack packet ABI used by the private Packet Tunnel;
 - every returned string must be released with `FoloXrayFreeString`.
 
 The wrapper returns coarse, stable error messages. It does not return the
@@ -37,6 +37,6 @@ stats surface reports lifecycle metadata and the two reserved first-release
 traffic counter names; PacketFlow wiring and traffic counter registration are
 implemented in later stages. The packet bridge does not create a local
 listener, inspect private Network Extension state, or claim to be the final
-VLESS/TUN data plane. The Stage-13 transport seams likewise do not create
-listeners or accept generic configuration; they only dispatch caller-owned
-TCP/UDP sessions through an already-running managed profile.
+VLESS/TUN data plane. The netstack packet ABI likewise does not create
+listeners or accept generic configuration; it only injects and drains complete
+IP packets through the already-running managed profile.

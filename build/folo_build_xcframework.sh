@@ -187,10 +187,6 @@ printf '%s\n' \
 	_FoloXrayPacketBridgeStart \
 	_FoloXrayPacketBridgeState \
 	_FoloXrayPacketBridgeStop \
-	_FoloXrayTCPClose \
-	_FoloXrayTCPConnect \
-	_FoloXrayTCPRead \
-	_FoloXrayTCPWrite \
 	_FoloXrayCopyLastError \
   _FoloXrayCopyStatsJSON \
   _FoloXrayCopyVersion \
@@ -199,10 +195,6 @@ printf '%s\n' \
 	_FoloXrayStartJSON \
 	_FoloXrayState \
 	_FoloXrayStop \
-	_FoloXrayUDPClose \
-	_FoloXrayUDPConnect \
-	_FoloXrayUDPRead \
-	_FoloXrayUDPWrite \
 	_FoloXrayValidateConfigJSON | sort -u > "${EXPECTED_SYMBOLS}"
 diff -u "${EXPECTED_SYMBOLS}" "${BUILD_ROOT}/symbols/exported.txt" || die "exported ABI differs from the allowlist"
 
