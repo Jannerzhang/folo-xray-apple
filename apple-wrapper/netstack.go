@@ -95,9 +95,6 @@ func newNetstackRuntime(instance *core.Instance) (*netstackRuntime, error) {
 		},
 	})
 
-	// Limit the TCP receive window before creating the NIC. The forwarder uses
-	// the same value for the initial handshake window, keeping per-flow memory
-	// bounded for the NetworkExtension process.
 	tcpReceiveBuffer := tcpip.TCPReceiveBufferSizeRangeOption{
 		Min:     4 * 1024,
 		Default: netstackTCPReceiveWindow,
@@ -107,6 +104,17 @@ func newNetstackRuntime(instance *core.Instance) (*netstackRuntime, error) {
 		cancel()
 		s.Close()
 		return nil, fmt.Errorf("configure TCP receive buffer: %s", err)
+	}
+
+	tcpSendBuffer := tcpip.TCPSendBufferSizeRangeOption{
+		Min:     4 * 1024,
+		Default: netstackTCPReceiveWindow,
+		Max:     netstackTCPReceiveWindow,
+	}
+	if err := s.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpSendBuffer); err != nil {
+		cancel()
+		s.Close()
+		return nil, fmt.Errorf("configure TCP send buffer: %s", err)
 	}
 
 	link := channel.New(netstackPacketQueueDepth, netstackMTU, "")
@@ -275,14 +283,24 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 	defer outbound.Close()
 
 	copyDone := make(chan struct{}, 2)
-	copyDirection := func(dst net.Conn, src net.Conn) {
-		_, _ = io.Copy(dst, src)
-		_ = dst.Close()
-		_ = src.Close()
+	go func() {
+		_, _ = io.Copy(outbound, inbound)
+		if cw, ok := outbound.(interface{ CloseWrite() error }); ok {
+			_ = cw.CloseWrite()
+		} else {
+			_ = outbound.Close()
+		}
 		copyDone <- struct{}{}
-	}
-	go copyDirection(outbound, inbound)
-	go copyDirection(inbound, outbound)
+	}()
+	go func() {
+		_, _ = io.Copy(inbound, outbound)
+		if cw, ok := inbound.(interface{ CloseWrite() error }); ok {
+			_ = cw.CloseWrite()
+		} else {
+			_ = inbound.Close()
+		}
+		copyDone <- struct{}{}
+	}()
 	<-copyDone
 	<-copyDone
 }
@@ -317,10 +335,20 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	return true
 }
 
+var udpBufferPool = sync.Pool{
+	New: func() interface{} {
+		// Use 4096 instead of 64KB for UDP buffers since internet MTU is normally 1500.
+		b := make([]byte, 4096)
+		return &b
+	},
+}
+
 func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketConn, destination *net.UDPAddr) {
 	copyDone := make(chan struct{}, 2)
 	go func() {
-		buffer := make([]byte, netstackMaxPacketSize)
+		bufPtr := udpBufferPool.Get().(*[]byte)
+		buffer := *bufPtr
+		defer udpBufferPool.Put(bufPtr)
 		for {
 			length, _, err := inbound.ReadFrom(buffer)
 			if err != nil {
@@ -333,7 +361,9 @@ func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketCo
 		copyDone <- struct{}{}
 	}()
 	go func() {
-		buffer := make([]byte, netstackMaxPacketSize)
+		bufPtr := udpBufferPool.Get().(*[]byte)
+		buffer := *bufPtr
+		defer udpBufferPool.Put(bufPtr)
 		for {
 			length, _, err := outbound.ReadFrom(buffer)
 			if err != nil {
