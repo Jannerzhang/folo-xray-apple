@@ -32,10 +32,13 @@ import (
 const (
 	netstackNICID            tcpip.NICID = 1
 	netstackMTU                          = 1500
-	netstackPacketQueueDepth             = 32
-	netstackTCPReceiveWindow             = 64 * 1024
-	netstackMaxTCPAccepts                = 32
+	netstackPacketQueueDepth             = 64
+	netstackTCPReceiveWindow             = 16 * 1024
+	netstackMaxTCPAccepts                = 16
 	netstackMaxPacketSize                = 64 * 1024
+	netstackMaxConcurrentTCP             = 64
+	netstackMaxConcurrentUDP             = 64
+	netstackCopyBufferSize               = 8 * 1024
 )
 
 var (
@@ -63,6 +66,9 @@ type netstackRuntime struct {
 
 	notify       *netstackPacketNotification
 	notifyHandle *channel.NotificationHandle
+
+	tcpTokens chan struct{}
+	udpTokens chan struct{}
 }
 
 type netstackPacketNotification struct {
@@ -96,7 +102,7 @@ func newNetstackRuntime(instance *core.Instance) (*netstackRuntime, error) {
 	})
 
 	tcpReceiveBuffer := tcpip.TCPReceiveBufferSizeRangeOption{
-		Min:     4 * 1024,
+		Min:     2 * 1024,
 		Default: netstackTCPReceiveWindow,
 		Max:     netstackTCPReceiveWindow,
 	}
@@ -107,7 +113,7 @@ func newNetstackRuntime(instance *core.Instance) (*netstackRuntime, error) {
 	}
 
 	tcpSendBuffer := tcpip.TCPSendBufferSizeRangeOption{
-		Min:     4 * 1024,
+		Min:     2 * 1024,
 		Default: netstackTCPReceiveWindow,
 		Max:     netstackTCPReceiveWindow,
 	}
@@ -119,11 +125,13 @@ func newNetstackRuntime(instance *core.Instance) (*netstackRuntime, error) {
 
 	link := channel.New(netstackPacketQueueDepth, netstackMTU, "")
 	runtime := &netstackRuntime{
-		stack:    s,
-		link:     link,
-		instance: instance,
-		ctx:      ctx,
-		cancel:   cancel,
+		stack:     s,
+		link:      link,
+		instance:  instance,
+		ctx:       ctx,
+		cancel:    cancel,
+		tcpTokens: make(chan struct{}, netstackMaxConcurrentTCP),
+		udpTokens: make(chan struct{}, netstackMaxConcurrentUDP),
 	}
 	runtime.notify = &netstackPacketNotification{ready: make(chan struct{}, 1)}
 
@@ -233,11 +241,26 @@ func (n *netstackRuntime) readPacket(dst []byte) (int, error) {
 	return offset, nil
 }
 
+var tcpBufferPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, netstackCopyBufferSize)
+		return &b
+	},
+}
+
 func (n *netstackRuntime) handleTCP(request *tcp.ForwarderRequest) {
+	select {
+	case n.tcpTokens <- struct{}{}:
+	default:
+		request.Complete(true)
+		return
+	}
+
 	id := request.ID()
 	var wq waiter.Queue
 	ep, err := request.CreateEndpoint(&wq)
 	if err != nil {
+		<-n.tcpTokens
 		request.Complete(true)
 		return
 	}
@@ -246,13 +269,16 @@ func (n *netstackRuntime) handleTCP(request *tcp.ForwarderRequest) {
 	conn := gonet.NewTCPConn(&wq, ep)
 	destination, ok := netstackAddress(id.LocalAddress)
 	if !ok || id.LocalPort == 0 {
+		<-n.tcpTokens
 		_ = conn.Close()
 		return
 	}
 
 	if !n.startWork(func() {
+		defer func() { <-n.tcpTokens }()
 		n.proxyTCP(conn, destination, id.LocalPort)
 	}) {
+		<-n.tcpTokens
 		_ = conn.Close()
 	}
 }
@@ -284,7 +310,9 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 
 	copyDone := make(chan struct{}, 2)
 	go func() {
-		_, _ = io.Copy(outbound, inbound)
+		bufPtr := tcpBufferPool.Get().(*[]byte)
+		defer tcpBufferPool.Put(bufPtr)
+		_, _ = io.CopyBuffer(outbound, inbound, *bufPtr)
 		if cw, ok := outbound.(interface{ CloseWrite() error }); ok {
 			_ = cw.CloseWrite()
 		} else {
@@ -293,7 +321,9 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 		copyDone <- struct{}{}
 	}()
 	go func() {
-		_, _ = io.Copy(inbound, outbound)
+		bufPtr := tcpBufferPool.Get().(*[]byte)
+		defer tcpBufferPool.Put(bufPtr)
+		_, _ = io.CopyBuffer(inbound, outbound, *bufPtr)
 		if cw, ok := inbound.(interface{ CloseWrite() error }); ok {
 			_ = cw.CloseWrite()
 		} else {
@@ -306,29 +336,40 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 }
 
 func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
+	select {
+	case n.udpTokens <- struct{}{}:
+	default:
+		return false
+	}
+
 	id := request.ID()
 	destination, ok := netstackUDPAddress(id.LocalAddress, id.LocalPort)
 	if !ok {
+		<-n.udpTokens
 		return false
 	}
 
 	var wq waiter.Queue
 	ep, err := request.CreateEndpoint(&wq)
 	if err != nil {
+		<-n.udpTokens
 		return false
 	}
 	inbound := gonet.NewUDPConn(&wq, ep)
 	outbound, dialErr := folotun.DialUDP(n.ctx, n.instance)
 	if dialErr != nil {
+		<-n.udpTokens
 		_ = inbound.Close()
 		return true
 	}
 
 	if !n.startWork(func() {
+		defer func() { <-n.udpTokens }()
 		defer inbound.Close()
 		defer outbound.Close()
 		n.proxyUDP(inbound, outbound, destination)
 	}) {
+		<-n.udpTokens
 		_ = inbound.Close()
 		_ = outbound.Close()
 	}
