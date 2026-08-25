@@ -129,6 +129,10 @@ func (r *Router) Route(domain string, ip net.IP, port uint16) RouteAction {
 		if action, ok := r.ipMatcher.Match(ip); ok {
 			return action
 		}
+		// 3. Built-in China IP match (in Rule mode)
+		if mode == ModeRule && IsChinaIP(ip) {
+			return ActionDirect
+		}
 	}
 
 	// Default for rule mode is Proxy

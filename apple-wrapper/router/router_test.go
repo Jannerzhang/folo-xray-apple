@@ -98,6 +98,14 @@ func TestRouterModes(t *testing.T) {
 	if act := r.Route("google.com", net.ParseIP("142.250.72.206"), 443); act != ActionProxy {
 		t.Errorf("expected google.com to be Proxy in Rule mode, got %v", act)
 	}
+	// Domestic IP (Unknown domain but domestic IP) -> Direct
+	if act := r.Route("unknown-domestic.xyz", net.ParseIP("114.114.114.114"), 53); act != ActionDirect {
+		t.Errorf("expected unknown domain with 114.114.114.114 to be Direct, got %v", act)
+	}
+	// Pure domestic IP without domain -> Direct
+	if act := r.Route("", net.ParseIP("223.5.5.5"), 443); act != ActionDirect {
+		t.Errorf("expected 223.5.5.5 to be Direct, got %v", act)
+	}
 	// Private IP -> Direct
 	if act := r.Route("", net.ParseIP("192.168.1.1"), 80); act != ActionDirect {
 		t.Errorf("expected private IP to be Direct, got %v", act)
