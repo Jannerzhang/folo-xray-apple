@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/sagernet/gvisor/pkg/buffer"
 	"github.com/sagernet/gvisor/pkg/tcpip"
