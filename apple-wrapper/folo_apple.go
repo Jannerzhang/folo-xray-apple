@@ -44,6 +44,7 @@ const (
 	statusIOError              int32 = 7
 	statusEOF                  int32 = 8
 	statusResourceLimit        int32 = 9
+	statusWouldBlock           int32 = 10
 )
 
 const (
@@ -248,6 +249,49 @@ func FoloXrayPacketBridgeCopyStatsJSON() *C.char {
 	return C.CString(string(payload))
 }
 
+//export FoloXrayNetstackStart
+func FoloXrayNetstackStart() C.int32_t {
+	engine.Lock()
+	defer engine.Unlock()
+	if engine.instance == nil || engine.state != stateRunning {
+		return C.int32_t(setErrorLocked(statusInvalidState, "engine is not running"))
+	}
+	if err := startNetstack(engine.instance); err != nil {
+		return C.int32_t(setErrorLocked(statusStartFailed, "netstack start failed"))
+	}
+	clearErrorLocked()
+	return C.int32_t(statusOK)
+}
+
+//export FoloXrayNetstackStop
+func FoloXrayNetstackStop() C.int32_t {
+	stopNetstack()
+	engine.Lock()
+	clearErrorLocked()
+	engine.Unlock()
+	return C.int32_t(statusOK)
+}
+
+//export FoloXrayNetstackWritePacket
+func FoloXrayNetstackWritePacket(packet *C.uint8_t, length C.size_t) C.int32_t {
+	if packet == nil || length == 0 || length > netstackMaxPacketSize {
+		return C.int32_t(statusInvalidArgument)
+	}
+	bytes := append([]byte(nil), unsafe.Slice((*byte)(unsafe.Pointer(packet)), int(length))...)
+	return C.int32_t(writeNetstackPacket(bytes))
+}
+
+//export FoloXrayNetstackReadPacket
+func FoloXrayNetstackReadPacket(buffer *C.uint8_t, capacity C.size_t, readLength *C.size_t) C.int32_t {
+	if readLength == nil || buffer == nil || capacity == 0 || capacity > netstackMaxPacketSize {
+		return C.int32_t(statusInvalidArgument)
+	}
+	bytes := unsafe.Slice((*byte)(unsafe.Pointer(buffer)), int(capacity))
+	length, code := readNetstackPacket(bytes)
+	*readLength = C.size_t(length)
+	return C.int32_t(code)
+}
+
 //export FoloXrayValidateConfigJSON
 func FoloXrayValidateConfigJSON(configBytes *C.uint8_t, configLength C.size_t) C.int32_t {
 	engine.Lock()
@@ -310,6 +354,7 @@ func FoloXrayStop() C.int32_t {
 		return C.int32_t(statusOK)
 	}
 	closeTransportSessions()
+	stopNetstack()
 	if err := engine.instance.Close(); err != nil {
 		engine.instance = nil
 		engine.state = stateIdle

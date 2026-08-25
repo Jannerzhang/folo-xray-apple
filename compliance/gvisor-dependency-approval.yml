@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+decision: approved-apache-2.0
+component:
+  id: gvisor
+  module: gvisor.dev/gvisor
+  repository: https://github.com/google/gvisor
+  version: v0.0.0-20260701204157-69c2d17aea96
+  commit: 69c2d17aea96695efb4d900b261b9d4b18bb55d9
+  sourceArchiveSha256: 18c105f53cd3b9469163158f7b778dddddf970a8474c561b78b4a757cf0778d2
+  moduleFileSha256: 2003903d9f23d5bcc09493b6e3178f3224fbdad74ba12e3adf3699637285120c
+  goSum: h1:LZXOf4NwvAwUy/eI8P+Y3DUdYLyaCEDNPEjsL2OP2ro=
+  goModSum: h1:8aLQqUBHDH8fY5y60lzmwDpMMbQCcT3EBfoSwhfaGCY=
+  license:
+    spdx: Apache-2.0
+    source: https://github.com/google/gvisor/blob/69c2d17aea96695efb4d900b261b9d4b18bb55d9/LICENSE
+    sha256: 0fbab5c58efbdf6d31e8085214f2dd821659c03d73cff3ed2b08e98826ea1cd9
+build:
+  targets: [darwin, ios]
+  tcpReceiveWindowBytes: 65536
+  outboundQueueDepth: 32
+  maxTCPAccepts: 32
+  excludedPlatformPaths:
+    - gvisor.dev/gvisor/pkg/tcpip/link/fdbased
+    - gvisor.dev/gvisor/pkg/tcpip/link/tun
+constraints:
+  - Only the gVisor netstack packages reachable from apple-wrapper are linked.
+  - The upstream module is Apache-2.0 and must remain pinned by go.sum.
+  - Linux-only link endpoints are excluded; raw IP packets use channel.Endpoint.

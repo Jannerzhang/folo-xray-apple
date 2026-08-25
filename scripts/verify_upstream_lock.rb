@@ -34,6 +34,7 @@ def tree_digest(path)
 end
 
 components = lock.fetch("baseline").fetch("components")
+dependencies = lock.fetch("baseline").fetch("dependencies", [])
 components.each do |component|
   path = File.join(root, component.fetch("importedPath"))
   unless Dir.exist?(path)
@@ -62,8 +63,26 @@ components.each do |component|
   errors << "#{component.fetch('id')}: license hash mismatch" unless actual_license == expected_license
 end
 
+dependencies.each do |dependency|
+  module_path = dependency.fetch("module")
+  version = dependency.fetch("version")
+  go_mod_path = File.join(root, "apple-wrapper", "go.mod")
+  go_sum_path = File.join(root, "apple-wrapper", "go.sum")
+  go_mod = File.read(go_mod_path)
+  go_sum = File.read(go_sum_path).lines.map(&:strip)
+
+  unless go_mod.match?(/(?:^|\s)#{Regexp.escape(module_path)}\s+#{Regexp.escape(version)}(?:\s|$)/)
+    errors << "#{dependency.fetch('id')}: #{module_path} is not pinned to #{version}"
+  end
+
+  expected_sum = "#{module_path} #{version} #{dependency.fetch('goSum')}"
+  expected_mod_sum = "#{module_path} #{version}\/go.mod #{dependency.fetch('goModSum')}"
+  errors << "#{dependency.fetch('id')}: missing go.sum module hash" unless go_sum.include?(expected_sum)
+  errors << "#{dependency.fetch('id')}: missing go.sum go.mod hash" unless go_sum.include?(expected_mod_sum)
+end
+
 if errors.empty?
-  puts "upstream_lock=pass components=#{components.length}"
+  puts "upstream_lock=pass components=#{components.length} dependencies=#{dependencies.length}"
 else
   warn errors.join("\n")
   exit 1

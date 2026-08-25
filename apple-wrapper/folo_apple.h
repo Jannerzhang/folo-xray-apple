@@ -20,6 +20,7 @@ enum FoloXrayStatusCode {
   FOLO_XRAY_IO_ERROR = 7,
   FOLO_XRAY_EOF = 8,
   FOLO_XRAY_RESOURCE_LIMIT = 9,
+  FOLO_XRAY_WOULD_BLOCK = 10,
 };
 
 enum FoloXrayState {
@@ -42,6 +43,17 @@ int32_t FoloXrayPacketBridgeStart(int32_t fd);
 int32_t FoloXrayPacketBridgeStop(void);
 int32_t FoloXrayPacketBridgeState(void);
 char *FoloXrayPacketBridgeCopyStatsJSON(void);
+
+// Stage-14 netstack packet boundary. Start requires a running managed Xray
+// instance. WritePacket copies and injects one complete IPv4/IPv6 packet;
+// ReadPacket is non-blocking and returns FOLO_XRAY_WOULD_BLOCK when the
+// egress queue is empty. Stop is idempotent.
+int32_t FoloXrayNetstackStart(void);
+int32_t FoloXrayNetstackStop(void);
+int32_t FoloXrayNetstackWritePacket(const uint8_t *packet, size_t length);
+int32_t FoloXrayNetstackReadPacket(uint8_t *buffer,
+                                   size_t capacity,
+                                   size_t *read_length);
 
 // Stage-13 transport seams. These APIs operate only after FoloXrayStartJSON
 // has loaded the approved managed profile. They expose bounded TCP/UDP

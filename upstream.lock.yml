@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 schemaVersion: 1
-observedAt: 2026-08-23
+observedAt: 2026-08-25
 
 # This file locks the source inputs. The archive hashes identify the pristine
 # upstream tags; patchedTreeDigest identifies the source actually committed in
@@ -48,6 +48,35 @@ baseline:
         spdx: MIT
         file: upstream/libXray/LICENSE
         sha256: b976920613d872432ba58dc3fb3d8af938fc58317061ab73c0beaa82dcb5e045
+
+  dependencies:
+    - id: gvisor
+      module: gvisor.dev/gvisor
+      repository: https://github.com/google/gvisor
+      version: v0.0.0-20260701204157-69c2d17aea96
+      commit: 69c2d17aea96695efb4d900b261b9d4b18bb55d9
+      sourceArchiveSha256: 18c105f53cd3b9469163158f7b778dddddf970a8474c561b78b4a757cf0778d2
+      moduleFileSha256: 2003903d9f23d5bcc09493b6e3178f3224fbdad74ba12e3adf3699637285120c
+      goSum: h1:LZXOf4NwvAwUy/eI8P+Y3DUdYLyaCEDNPEjsL2OP2ro=
+      goModSum: h1:8aLQqUBHDH8fY5y60lzmwDpMMbQCcT3EBfoSwhfaGCY=
+      license:
+        spdx: Apache-2.0
+        source: https://github.com/google/gvisor/blob/69c2d17aea96695efb4d900b261b9d4b18bb55d9/LICENSE
+        sha256: 0fbab5c58efbdf6d31e8085214f2dd821659c03d73cff3ed2b08e98826ea1cd9
+      build:
+        targets: [darwin, ios]
+        packages:
+          - gvisor.dev/gvisor/pkg/tcpip/adapters/gonet
+          - gvisor.dev/gvisor/pkg/tcpip/link/channel
+          - gvisor.dev/gvisor/pkg/tcpip/network/ipv4
+          - gvisor.dev/gvisor/pkg/tcpip/network/ipv6
+          - gvisor.dev/gvisor/pkg/tcpip/stack
+          - gvisor.dev/gvisor/pkg/tcpip/transport/icmp
+          - gvisor.dev/gvisor/pkg/tcpip/transport/tcp
+          - gvisor.dev/gvisor/pkg/tcpip/transport/udp
+        excludedPlatformPaths:
+          - gvisor.dev/gvisor/pkg/tcpip/link/fdbased
+          - gvisor.dev/gvisor/pkg/tcpip/link/tun
 
   rejectedCandidates:
     - id: xray-core-v26.7.28

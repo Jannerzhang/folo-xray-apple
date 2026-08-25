@@ -23,3 +23,5 @@ observations:
   - The stage-09 configuration boundary is main/folojson; the mobile wrapper accepts only the versioned VLESS/TCP/Reality schema.
   - Stage 10 adds the MPL-2.0 main/folotun framing endpoint and a private Swift PacketFlow bridge PoC; this does not add a local listener or a new third-party protocol implementation.
   - The framework remains local-only and releaseReady=false until the source offer and later Packet Tunnel gates are complete.
+  - gvisor.dev/gvisor is pinned to 69c2d17aea96695efb4d900b261b9d4b18bb55d9; only channel, stack, gonet, IPv4/IPv6, ICMP, TCP and UDP netstack packages are reachable from the Apple wrapper.
+  - The selected gVisor snapshot avoids the upstream module's invalid bridge test package and compiles for Darwin/iOS without Linux-only link endpoints.
