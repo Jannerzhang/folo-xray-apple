@@ -3,17 +3,17 @@ schemaVersion: 1
 decision: approved-apache-2.0
 component:
   id: gvisor
-  module: gvisor.dev/gvisor
-  repository: https://github.com/google/gvisor
-  version: v0.0.0-20260701204157-69c2d17aea96
-  commit: 69c2d17aea96695efb4d900b261b9d4b18bb55d9
-  sourceArchiveSha256: 18c105f53cd3b9469163158f7b778dddddf970a8474c561b78b4a757cf0778d2
-  moduleFileSha256: 2003903d9f23d5bcc09493b6e3178f3224fbdad74ba12e3adf3699637285120c
-  goSum: h1:LZXOf4NwvAwUy/eI8P+Y3DUdYLyaCEDNPEjsL2OP2ro=
-  goModSum: h1:8aLQqUBHDH8fY5y60lzmwDpMMbQCcT3EBfoSwhfaGCY=
+  module: github.com/sagernet/gvisor
+  repository: https://github.com/sagernet/gvisor
+  version: v0.0.0-20250811-sing-box-mod.1
+  commit: 20b7e9b2d7e2c107118614f0516c2e92b9f1c3f1
+  sourceArchiveSha256: 43d5c70f30283a7aad84229f6d56031ef1cec4d375f254edda35365e750beaf3
+  moduleFileSha256: 7faa90821ca1c3788733d5705479a2867638f9b5363f3d3cad8f998aa67d8e3d
+  goSum: h1:bYLFFxOBLbmeMjMSCzsXJwNAS1EHoBb+G9GlE5oBgM8=
+  goModSum: h1:NJKBtm9nVEK3iyOYWsUlrDQuoGh4zJ4KOPhSYVidvQ4=
   license:
     spdx: Apache-2.0
-    source: https://github.com/google/gvisor/blob/69c2d17aea96695efb4d900b261b9d4b18bb55d9/LICENSE
+    source: https://github.com/sagernet/gvisor/blob/20b7e9b2d7e2c107118614f0516c2e92b9f1c3f1/LICENSE
     sha256: 0fbab5c58efbdf6d31e8085214f2dd821659c03d73cff3ed2b08e98826ea1cd9
 build:
   targets: [darwin, ios]
@@ -21,9 +21,9 @@ build:
   outboundQueueDepth: 32
   maxTCPAccepts: 32
   excludedPlatformPaths:
-    - gvisor.dev/gvisor/pkg/tcpip/link/fdbased
-    - gvisor.dev/gvisor/pkg/tcpip/link/tun
+    - github.com/sagernet/gvisor/pkg/tcpip/link/fdbased
+    - github.com/sagernet/gvisor/pkg/tcpip/link/tun
 constraints:
-  - Only the gVisor netstack packages reachable from apple-wrapper are linked.
+  - Only the SagerNet gVisor netstack packages reachable from apple-wrapper are linked.
   - The upstream module is Apache-2.0 and must remain pinned by go.sum.
   - Linux-only link endpoints are excluded; raw IP packets use channel.Endpoint.

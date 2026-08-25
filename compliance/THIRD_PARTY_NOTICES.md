@@ -32,7 +32,7 @@ XCFramework binary SBOM and exported-symbol audit.
 | Folo first-release JSON boundary | local commit | MPL-2.0 | [distro-v1.yml](distro-v1.yml) |
 | Folo empty inbound manager | local commit | MPL-2.0 | [distro-v1.yml](distro-v1.yml) |
 | Folo PacketFlow framing endpoint | local commit | MPL-2.0 | [upstream/xray-core/main/folotun](../upstream/xray-core/main/folotun) |
-| google/gvisor netstack | `69c2d17aea96` | Apache-2.0 | [gvisor dependency approval](gvisor-dependency-approval.yml) |
+| SagerNet gVisor netstack | `v0.0.0-20250811-sing-box-mod.1` / `20b7e9b2d7e2` | Apache-2.0 | [gvisor dependency approval](gvisor-dependency-approval.yml) |
 | XTLS/libXray | v3.1.0 | MIT | [upstream/libXray/LICENSE](../upstream/libXray/LICENSE) |
 | XTLS/Xray-core | v1.8.24 | MPL-2.0 | [upstream/xray-core/LICENSE](../upstream/xray-core/LICENSE) |
 | XTLS/reality | 48f0b2d5ed6d | MPL-2.0 | https://github.com/XTLS/reality/blob/48f0b2d5ed6d/LICENSE |

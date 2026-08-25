@@ -10,6 +10,7 @@ cd "$repo_root"
 deps_file="$(mktemp -t folo-xray-deps.XXXXXX)"
 wrapper_deps_file="$(mktemp -t folo-xray-wrapper-deps.XXXXXX)"
 trap 'rm -f "$deps_file" "$wrapper_deps_file"' EXIT
+gvisor_module='github.com/sagernet/gvisor'
 
 GOTOOLCHAIN=local go list -deps github.com/xtls/xray-core/main/distro/folo > "$deps_file"
 GOTOOLCHAIN=local go list -deps github.com/Jannerzhang/folo-xray-apple/apple-wrapper > "$wrapper_deps_file"
@@ -71,16 +72,24 @@ done
 
 echo "first_release_module_boundary=pass dependency_count=$(wc -l < "$deps_file" | tr -d ' ')"
 
-for package in "github.com/sagernet/gvisor/pkg/tcpip/adapters/gonet" "github.com/sagernet/gvisor/pkg/tcpip/stack"; do
+for package in \
+  "$gvisor_module/pkg/tcpip/adapters/gonet" \
+  "$gvisor_module/pkg/tcpip/link/channel" \
+  "$gvisor_module/pkg/tcpip/network/ipv4" \
+  "$gvisor_module/pkg/tcpip/network/ipv6" \
+  "$gvisor_module/pkg/tcpip/stack" \
+  "$gvisor_module/pkg/tcpip/transport/icmp" \
+  "$gvisor_module/pkg/tcpip/transport/tcp" \
+  "$gvisor_module/pkg/tcpip/transport/udp"; do
   if ! grep -q "$package" "$wrapper_deps_file"; then
     echo "required gVisor package missing from Apple wrapper: $package" >&2
     exit 1
   fi
 done
 
-if grep -E -q 'gvisor.dev/gvisor/pkg/(rawfile|eventfd|tcpip/link/(fdbased|sharedmem|stopfd|tun|xdp))' "$wrapper_deps_file"; then
+if grep -E -q "$gvisor_module/pkg/(rawfile|eventfd|tcpip/link/(fdbased|sharedmem|stopfd|tun|xdp))" "$wrapper_deps_file"; then
   echo "Linux-only gVisor package linked by Apple wrapper" >&2
   exit 1
 fi
 
-echo "gvisor_netstack_boundary=pass dependency_count=$(grep -c '^gvisor.dev/gvisor/' "$wrapper_deps_file" | tr -d ' ')"
+echo "gvisor_netstack_boundary=pass dependency_count=$(grep -c "^${gvisor_module}/" "$wrapper_deps_file" | tr -d ' ')"
