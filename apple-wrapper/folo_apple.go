@@ -25,9 +25,10 @@ import (
 )
 
 func init() {
-	// Set memory limit to 12MB and aggressive GC for iOS NetworkExtension Jetsam constraints
-	debug.SetMemoryLimit(12 * 1024 * 1024)
-	debug.SetGCPercent(20)
+	// Restrict Go runtime threads and memory footprint for iOS NetworkExtension 50MB Jetsam limit
+	runtime.GOMAXPROCS(2)
+	debug.SetMemoryLimit(8 * 1024 * 1024)
+	debug.SetGCPercent(10)
 }
 
 const maxConfigBytes = 4 * 1024 * 1024
