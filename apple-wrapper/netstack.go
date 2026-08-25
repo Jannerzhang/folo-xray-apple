@@ -325,7 +325,6 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 	// 2. Routing decision
 	parsedIP := net.ParseIP(destination)
 	action := n.router.Route(sniffedDomain, parsedIP, port)
-	logRoutingDecision("TCP", destination, port, sniffedDomain, action)
 
 	if action == router.ActionBlock {
 		return
@@ -403,7 +402,6 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 
 	parsedIP := net.ParseIP(id.LocalAddress.String())
 	action := n.router.Route("", parsedIP, id.LocalPort)
-	logRoutingDecision("UDP", id.LocalAddress.String(), id.LocalPort, "", action)
 	if action == router.ActionBlock {
 		<-n.udpTokens
 		return true

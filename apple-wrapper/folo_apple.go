@@ -5,11 +5,6 @@ package main
 #include <stdint.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <os/log.h>
-
-static void folo_log_route(const char* msg) {
-    os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "[FoloRouter] %{public}s", msg);
-}
 */
 import "C"
 
@@ -17,7 +12,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -30,30 +24,6 @@ import (
 	"github.com/xtls/xray-core/main/folotun"
 	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
-
-func logRoutingDecision(proto string, destination string, port uint16, sniffedDomain string, action router.RouteAction) {
-	var actionStr string
-	switch action {
-	case router.ActionDirect:
-		actionStr = "DIRECT (直连)"
-	case router.ActionProxy:
-		actionStr = "PROXY (代理)"
-	case router.ActionBlock:
-		actionStr = "BLOCK (阻断)"
-	default:
-		actionStr = "UNKNOWN"
-	}
-
-	target := destination
-	if sniffedDomain != "" {
-		target = fmt.Sprintf("%s (%s)", sniffedDomain, destination)
-	}
-
-	msg := fmt.Sprintf("%s dest=%s:%d -> Action: %s", proto, target, port, actionStr)
-	cmsg := C.CString(msg)
-	C.folo_log_route(cmsg)
-	C.free(unsafe.Pointer(cmsg))
-}
 
 var scavengerOnce sync.Once
 
