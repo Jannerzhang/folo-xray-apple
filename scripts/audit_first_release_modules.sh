@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
-export PATH="/usr/local/go/bin:${PATH}"
+export PATH="/Users/liwanqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.4.darwin-arm64/bin:${PATH}"
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"

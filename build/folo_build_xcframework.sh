@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOCK_FILE="${REPO_ROOT}/build/toolchain.lock.yml"
 
-export PATH="/usr/local/go/bin:${PATH}"
+export PATH="/Users/liwanqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.4.darwin-arm64/bin:${PATH}"
 
 die() {
   printf 'build error: %s\n' "$1" >&2
