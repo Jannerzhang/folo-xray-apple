@@ -162,7 +162,7 @@ otool -l "${FIXTURE_ROOT}/FoloXrayLinkFixture" | awk '
   found && /platform|minos|sdk/ { print }
   found && /sdk/ { exit }
 ' | tee "${FIXTURE_ROOT}/build-version.txt"
-rg -q 'minos 17\.0' "${FIXTURE_ROOT}/build-version.txt" || die "link fixture deployment target is not iOS 17.0"
+grep -q 'minos 17\.0' "${FIXTURE_ROOT}/build-version.txt" || die "link fixture deployment target is not iOS 17.0"
 
 mkdir -p "${BUILD_ROOT}/symbols"
 nm -gU "${FRAMEWORK_SLICE_DEVICE}" | awk '$3 ~ /^_FoloXray/ {print $3}' | sort -u > "${BUILD_ROOT}/symbols/device.txt"
