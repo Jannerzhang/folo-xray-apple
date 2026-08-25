@@ -127,6 +127,11 @@ xcodebuild -create-xcframework \
   -library "${SLICE_ROOT}/ios-simulator/libFoloXray.a" -headers "${HEADER_ROOT}" \
   -output "${FRAMEWORK_ROOT}"
 
+NOTICE_ROOT="${FRAMEWORK_ROOT}/ThirdPartyNotices"
+mkdir -p "${NOTICE_ROOT}"
+cp "${REPO_ROOT}/compliance/THIRD_PARTY_NOTICES.md" "${NOTICE_ROOT}/THIRD_PARTY_NOTICES.md"
+cp "${REPO_ROOT}/compliance/gvisor-dependency-approval.yml" "${NOTICE_ROOT}/gvisor-dependency-approval.yml"
+
 python3 - "${FRAMEWORK_ROOT}/Info.plist" <<'PY'
 import plistlib
 import sys
@@ -240,6 +245,9 @@ moduleBoundary: module-audit.txt
 distroProfile: compliance/distro-v1.yml
 tuningProfile: compliance/mobile-tuning-v1.yml
 symbols: symbols/exported.txt
+thirdPartyNotices:
+  - ThirdPartyNotices/THIRD_PARTY_NOTICES.md
+  - ThirdPartyNotices/gvisor-dependency-approval.yml
 sizes:
   deviceStaticLibraryBytes: ${DEVICE_BYTES}
   simulatorStaticLibraryBytes: ${SIMULATOR_BYTES}

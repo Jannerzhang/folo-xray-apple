@@ -15,6 +15,8 @@ produces an unsigned, local-only artifact under
   `ios-arm64_x86_64-simulator` slices;
 - `artifact-manifest.yml` with source, toolchain, symbols and hashes;
 - `symbols/` and `build.log` for audit evidence.
+- `ThirdPartyNotices/` with the gVisor approval record and the checked-in
+  third-party notice list used by the XCFramework bundle.
 
 `fixture/folo_xray_link_fixture.c` is a minimal iOS 17 link fixture. It only
 calls version and state functions and never starts the engine. The cgo archive
