@@ -84,6 +84,7 @@ build_slice() {
   (
     cd "${REPO_ROOT}/apple-wrapper"
     env \
+      PATH="${PATH}" \
       GOWORK="${REPO_ROOT}/go.work" \
       GOTOOLCHAIN=local \
       GOOS="${goos}" \
@@ -95,7 +96,7 @@ build_slice() {
       CGO_CFLAGS="${flags}" \
       CGO_CXXFLAGS="${flags}" \
       CGO_LDFLAGS="${flags} -Wl,-dead_strip" \
-      go build \
+      "${GO_BIN:-go}" build \
         -buildmode=c-archive \
         -buildvcs=false \
         -ldflags='-s -w -buildid=' \
