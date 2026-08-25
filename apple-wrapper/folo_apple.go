@@ -26,8 +26,8 @@ import (
 
 func init() {
 	// Restrict Go runtime threads and memory footprint for iOS NetworkExtension 50MB Jetsam limit
-	runtime.GOMAXPROCS(2)
-	debug.SetMemoryLimit(8 * 1024 * 1024)
+	runtime.GOMAXPROCS(1)
+	debug.SetMemoryLimit(6 * 1024 * 1024)
 	debug.SetGCPercent(10)
 }
 
