@@ -36,9 +36,9 @@ const (
 	netstackTCPReceiveWindow             = 16 * 1024
 	netstackMaxTCPAccepts                = 16
 	netstackMaxPacketSize                = 64 * 1024
-	netstackMaxConcurrentTCP             = 64
-	netstackMaxConcurrentUDP             = 64
-	netstackCopyBufferSize               = 8 * 1024
+	netstackMaxConcurrentTCP             = 48
+	netstackMaxConcurrentUDP             = 48
+	netstackCopyBufferSize               = 4 * 1024
 )
 
 var (

@@ -24,11 +24,25 @@ import (
 	"github.com/xtls/xray-core/main/folotun"
 )
 
+var scavengerOnce sync.Once
+
+func startScavenger() {
+	scavengerOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(2 * time.Second)
+			for range ticker.C {
+				debug.FreeOSMemory()
+			}
+		}()
+	})
+}
+
 func init() {
 	// Restrict Go runtime threads and memory footprint for iOS NetworkExtension 50MB Jetsam limit
 	runtime.GOMAXPROCS(1)
-	debug.SetMemoryLimit(25 * 1024 * 1024)
-	debug.SetGCPercent(20)
+	debug.SetMemoryLimit(15 * 1024 * 1024)
+	debug.SetGCPercent(10)
+	startScavenger()
 }
 
 const maxConfigBytes = 4 * 1024 * 1024
