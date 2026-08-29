@@ -18,19 +18,25 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 	"github.com/xtls/xray-core/core"
 	featureStats "github.com/xtls/xray-core/features/stats"
 	_ "github.com/xtls/xray-core/main/distro/folo"
 	"github.com/xtls/xray-core/main/folotun"
-	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
 
 var scavengerOnce sync.Once
 
+const scavengerInterval = 15 * time.Second
+
 func startScavenger() {
 	scavengerOnce.Do(func() {
 		go func() {
-			ticker := time.NewTicker(1 * time.Second)
+			// FreeOSMemory can briefly stop the world. Keep it out of the
+			// packet hot path while still returning idle Go pages periodically
+			// for the NetworkExtension memory budget.
+			ticker := time.NewTicker(scavengerInterval)
+			defer ticker.Stop()
 			for range ticker.C {
 				debug.FreeOSMemory()
 			}

@@ -26,21 +26,23 @@ import (
 	"github.com/sagernet/gvisor/pkg/tcpip/transport/udp"
 	"github.com/sagernet/gvisor/pkg/waiter"
 
+	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/main/folotun"
-	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
 
 const (
-	netstackNICID            tcpip.NICID = 1
-	netstackMTU                          = 1500
-	netstackPacketQueueDepth             = 64
-	netstackTCPReceiveWindow             = 16 * 1024
-	netstackMaxTCPAccepts                = 16
-	netstackMaxPacketSize                = 64 * 1024
-	netstackMaxConcurrentTCP             = 48
-	netstackMaxConcurrentUDP             = 48
-	netstackCopyBufferSize               = 4 * 1024
+	netstackNICID             tcpip.NICID = 1
+	netstackMTU                           = 1500
+	netstackPacketQueueDepth              = 32
+	netstackTCPReceiveWindow              = 8 * 1024
+	netstackMaxTCPAccepts                 = 8
+	netstackMaxPacketSize                 = 64 * 1024
+	netstackMaxConcurrentTCP              = 24
+	netstackMaxConcurrentUDP              = 24
+	netstackCopyBufferSize                = 4 * 1024
+	netstackTCPHalfCloseGrace             = 2 * time.Second
+	netstackUDPIdleTimeout                = 15 * time.Second
 )
 
 var (
@@ -231,10 +233,16 @@ func (n *netstackRuntime) readPacket(dst []byte) (int, error) {
 		return 0, errNetstackWouldBlock
 	}
 
-	slices := pkt.AsSlices()
+	views, headerOffset := pkt.AsViewList()
 	length := 0
-	for _, part := range slices {
-		length += len(part)
+	for view := views.Front(); view != nil; view = view.Next() {
+		part := view.AsSlice()
+		if headerOffset >= len(part) {
+			headerOffset -= len(part)
+			continue
+		}
+		length += len(part) - headerOffset
+		headerOffset = 0
 	}
 	if length > len(dst) {
 		n.pending = pkt
@@ -242,8 +250,15 @@ func (n *netstackRuntime) readPacket(dst []byte) (int, error) {
 	}
 
 	offset := 0
-	for _, part := range slices {
-		offset += copy(dst[offset:], part)
+	views, headerOffset = pkt.AsViewList()
+	for view := views.Front(); view != nil; view = view.Next() {
+		part := view.AsSlice()
+		if headerOffset >= len(part) {
+			headerOffset -= len(part)
+			continue
+		}
+		offset += copy(dst[offset:], part[headerOffset:])
+		headerOffset = 0
 	}
 	n.pending = nil
 	pkt.DecRef()
@@ -310,6 +325,10 @@ func (n *netstackRuntime) startWork(fn func()) bool {
 
 func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port uint16) {
 	defer inbound.Close()
+	ctx := n.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	// 1. Read first packet chunk to sniff TLS SNI or HTTP host
 	peekBuf := make([]byte, 2048)
@@ -378,11 +397,27 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 		copyDone <- struct{}{}
 	}()
 
-	// Wait for the first direction to finish
+	// Wait for the first direction to finish. A half-close is allowed a short
+	// grace period for the peer's final response, but it must not retain a flow
+	// indefinitely when the other direction stops making progress.
 	<-copyDone
-	// Unblock and cleanly terminate the other direction after 5s grace period to avoid token exhaustion
-	_ = inbound.SetDeadline(time.Now().Add(5 * time.Second))
-	_ = outbound.SetDeadline(time.Now().Add(5 * time.Second))
+	deadline := time.Now().Add(netstackTCPHalfCloseGrace)
+	_ = inbound.SetDeadline(deadline)
+	_ = outbound.SetDeadline(deadline)
+
+	graceTimer := time.NewTimer(netstackTCPHalfCloseGrace)
+	defer graceTimer.Stop()
+	select {
+	case <-copyDone:
+		return
+	case <-graceTimer.C:
+		// SetDeadline is best-effort for wrapped connections. Close explicitly
+		// so the second copy goroutine cannot keep the flow token indefinitely.
+	case <-ctx.Done():
+		// Stop the data plane immediately during tunnel shutdown.
+	}
+	_ = inbound.Close()
+	_ = outbound.Close()
 	<-copyDone
 }
 
@@ -467,7 +502,7 @@ func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketCo
 		buffer := *bufPtr
 		defer udpBufferPool.Put(bufPtr)
 		for {
-			_ = inbound.SetReadDeadline(time.Now().Add(30 * time.Second))
+			_ = inbound.SetReadDeadline(time.Now().Add(netstackUDPIdleTimeout))
 			length, _, err := inbound.ReadFrom(buffer)
 			if err != nil {
 				break
@@ -483,7 +518,7 @@ func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketCo
 		buffer := *bufPtr
 		defer udpBufferPool.Put(bufPtr)
 		for {
-			_ = outbound.SetReadDeadline(time.Now().Add(30 * time.Second))
+			_ = outbound.SetReadDeadline(time.Now().Add(netstackUDPIdleTimeout))
 			length, _, err := outbound.ReadFrom(buffer)
 			if err != nil {
 				break

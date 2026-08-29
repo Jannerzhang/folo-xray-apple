@@ -31,6 +31,19 @@ defaults:
 resourceBudget:
   measurementUnit: bytes
   budgetIs: hard review gate, not a promise of a fixed iOS process quota
+  netstackRuntime:
+    packetQueueDepth: 32
+    tcpWindowBytes: 8192
+    tcpAcceptBacklog: 8
+    maxConcurrentTCP: 24
+    maxConcurrentUDP: 24
+    tcpHalfCloseGraceSeconds: 2
+    udpIdleTimeoutSeconds: 15
+    forcedScavengerIntervalSeconds: 15
+    rationale: >-
+      Bounds live gVisor endpoints, copy goroutines and packet buffers below
+      the prior 48/48-flow profile that repeatedly reached the device's
+      observed 50 MiB Packet Tunnel per-process limit.
   deviceStaticLibraryBytes:
     beforeStage09: 30758296
     afterStage09: 17539696
