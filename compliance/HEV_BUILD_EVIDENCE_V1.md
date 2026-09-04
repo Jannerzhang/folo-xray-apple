@@ -77,13 +77,14 @@ worker 独占并关闭副本，包含初始化失败和 stop 路径。该变化�
 ## 当前 wrapper 归档复测（2026-09-04）
 
 Core `5b30922f4b9f4f1266a3b856d79a7dd08aae1c95` 增加 Hev 配置解析失败时的
-worker-return 唤醒路径，并由 host fixture 验证畸形配置返回
-`FOLO_HEV_PACKETFLOW_START_FAILED`、状态回到 `IDLE`。重新执行
+worker-return 唤醒路径和 worker 已退出时的幂等 Stop 清理，并由 host fixture 验证
+畸形配置返回 `FOLO_HEV_PACKETFLOW_START_FAILED`、状态回到 `IDLE`，以及引擎先
+退出后 wrapper Stop 的清理路径。重新执行
 `bash build/folo_build_hev_apple.sh`，结果为 `hev_apple_build=pass`；当前静态库
-为 `676376` bytes，SHA-256 为：
+为 `676440` bytes，SHA-256 为：
 
 ```text
-6fedcb0c520bc7958ec94e182f7ee845dca3f952f191877c4b23198e6f17e833
+f3b5e31517a14daa4947817ae868f0466eff4ad89034dcc798ea7e9dcdd5f548
 ```
 
 ABI 符号、iOS arm64 链接夹具和 host native-first stop 回归继续通过。该归档仍

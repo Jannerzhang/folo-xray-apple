@@ -157,6 +157,7 @@ int32_t
 FoloHevPacketFlowStop (void)
 {
   struct hev_context *context;
+  int should_quit;
 
   pthread_mutex_lock (&state_lock);
   context = active_context;
@@ -165,10 +166,16 @@ FoloHevPacketFlowStop (void)
     pthread_mutex_unlock (&state_lock);
     return FOLO_HEV_PACKETFLOW_OK;
   }
-  state = FOLO_HEV_PACKETFLOW_DRAINING;
+  /* A worker can finish by itself after an engine-side quit or runtime
+   * failure. In that case the engine has already torn down its global state;
+   * Stop must only join and reclaim the wrapper context. */
+  should_quit = state != FOLO_HEV_PACKETFLOW_IDLE;
+  if (should_quit)
+    state = FOLO_HEV_PACKETFLOW_DRAINING;
   pthread_mutex_unlock (&state_lock);
 
-  hev_socks5_tunnel_quit ();
+  if (should_quit)
+    hev_socks5_tunnel_quit ();
   if (context->thread_created)
     pthread_join (context->thread, NULL);
 

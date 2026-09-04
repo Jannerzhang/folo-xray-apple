@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "folo_hev_packetflow.h"
+#include "hev-main.h"
 
 static const char config[] =
     "tunnel:\n"
@@ -69,8 +70,28 @@ stop_wrapper:
         result = 16;
     if (result == 0 && fcntl (descriptors[0], F_GETFD) < 0)
         result = 17;
+
+    if (result == 0 &&
+        FoloHevPacketFlowStart ((const uint8_t *)config, strlen (config),
+                                descriptors[0]) != FOLO_HEV_PACKETFLOW_OK)
+        result = 21;
+    if (result == 0 && FoloHevPacketFlowState () != FOLO_HEV_PACKETFLOW_RUNNING)
+        result = 22;
+    if (result == 0)
+        hev_socks5_tunnel_quit ();
+    for (int attempt = 0; result == 0 && attempt < 100; attempt++) {
+        if (FoloHevPacketFlowState () == FOLO_HEV_PACKETFLOW_IDLE)
+            break;
+        usleep (1000);
+    }
+    if (result == 0 && FoloHevPacketFlowState () != FOLO_HEV_PACKETFLOW_IDLE)
+        result = 23;
+    if (FoloHevPacketFlowStop () != FOLO_HEV_PACKETFLOW_OK && result == 0)
+        result = 24;
+    if (result == 0 && fcntl (descriptors[0], F_GETFD) < 0)
+        result = 25;
     if (shutdown (descriptors[0], SHUT_RDWR) != 0 && result == 0)
-        result = 18;
+        result = 26;
 
 close_descriptors:
     close (descriptors[0]);
