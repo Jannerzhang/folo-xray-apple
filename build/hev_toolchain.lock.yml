@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+purpose: Hev Apple evaluation build only
+observedAt: 2026-09-04
+xcode:
+  version: "26.6"
+  build: "17F113"
+sdk:
+  name: iphoneos
+  version: "26.5"
+deploymentTarget: "17.0"
+compiler:
+  family: Apple clang
+  requiredTarget: arm64-apple-ios
+source:
+  candidate: a404c11cd61d8e29e6f4c590b7e659d127fb843e
+  submodules:
+    hev-socks5-core: 162dd996299fc2d2bff2dd63728f8a2cd71ed31a
+    hev-task-system: 328f35d903221b51811b3d02b277d665dfbdc75f
+    lwip: 2a11c14c7a32887af25a034e82ef18b0b12076ac
+    yaml: efa36117a8646d26d12b58e05bac472d7854a70d
+  localPatch: packetflow-backend-and-readiness-hooks
