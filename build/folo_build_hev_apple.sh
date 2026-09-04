@@ -31,6 +31,27 @@ lock_value() {
   ruby -ryaml -e 'data = YAML.load_file(ARGV[0]); value = ARGV[1].split(".").reduce(data) { |memo, key| memo.fetch(key) }; puts value' "${LOCK_FILE}" "$1"
 }
 
+source_tree_digest() {
+  ruby -rdigest -e '
+root = ARGV.fetch(0)
+entries = Dir.glob(File.join(root, "**", "*"), File::FNM_DOTMATCH)
+  .reject { |entry| entry.end_with?("/.") || entry.end_with?("/..") }
+  .reject { |entry| File.directory?(entry) }
+  .sort
+lines = entries.map do |entry|
+  relative = entry[(root.length + 1)..]
+  stat = File.lstat(entry)
+  digest = stat.symlink? ? Digest::SHA256.hexdigest(File.readlink(entry)) : Digest::SHA256.file(entry).hexdigest
+  format("%o\t%s\t%s", stat.mode & 0o7777, relative, digest)
+end
+puts Digest::SHA256.hexdigest(lines.join("\n") + "\n")
+' "${HEV_ROOT}"
+}
+
+EXPECTED_VENDOR_TREE="$(lock_value source.vendorTreeSha256)"
+ACTUAL_VENDOR_TREE="$(source_tree_digest)"
+[[ "${ACTUAL_VENDOR_TREE}" == "${EXPECTED_VENDOR_TREE}" ]] || die "vendored Hev tree ${ACTUAL_VENDOR_TREE} does not match ${EXPECTED_VENDOR_TREE}"
+
 EXPECTED_XCODE="$(lock_value xcode.version)"
 EXPECTED_XCODE_BUILD="$(lock_value xcode.build)"
 EXPECTED_SDK="$(lock_value sdk.version)"
@@ -43,8 +64,9 @@ ACTUAL_SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
 [[ "${ACTUAL_SDK}" == "${EXPECTED_SDK}" ]] || die "iPhoneOS SDK ${ACTUAL_SDK} does not match ${EXPECTED_SDK}"
 
 SOURCE_REVISION="$(lock_value source.candidate)"
-BUILD_ROOT="${REPO_ROOT}/artifacts/hev/${SOURCE_REVISION}"
+BUILD_ROOT="${REPO_ROOT}/artifacts/hev/${SOURCE_REVISION}-${ACTUAL_VENDOR_TREE}"
 SLICE_ROOT="${BUILD_ROOT}/ios-arm64"
+rm -rf "${BUILD_ROOT}"
 mkdir -p "${SLICE_ROOT}" "${BUILD_ROOT}/logs"
 BUILD_LOG="${BUILD_ROOT}/logs/ios-arm64.log"
 exec > >(tee "${BUILD_LOG}") 2>&1
@@ -84,6 +106,7 @@ make -C "${HEV_ROOT}" \
   CC="${CLANG}" AR="${AR}" \
   CFLAGS="${YAML_CFLAGS} ${COMMON_CFLAGS} ${HEV_INCLUDES[*]}" \
   BINDIR="${SLICE_ROOT}/hev/bin" BUILDDIR="${SLICE_ROOT}/hev/build" \
+  THIRDPARTS= \
   THIRDPARTDIR="${HEV_ROOT}/third-part" static
 
 "${CLANG}" ${COMMON_CFLAGS} "${HEV_INCLUDES[@]}" \
@@ -105,20 +128,7 @@ grep -q '^_FoloHevPacketFlowStart$' "${BUILD_ROOT}/symbols.txt" || die "start sy
 grep -q '^_FoloHevPacketFlowStop$' "${BUILD_ROOT}/symbols.txt" || die "stop symbol missing"
 grep -q '^_FoloHevPacketFlowState$' "${BUILD_ROOT}/symbols.txt" || die "state symbol missing"
 
-SOURCE_TREE_DIGEST="$(ruby -rdigest -e '
-root = ARGV.fetch(0)
-entries = Dir.glob(File.join(root, "**", "*"), File::FNM_DOTMATCH)
-  .reject { |entry| entry.end_with?("/.") || entry.end_with?("/..") }
-  .reject { |entry| File.directory?(entry) }
-  .sort
-lines = entries.map do |entry|
-  relative = entry[(root.length + 1)..]
-  stat = File.lstat(entry)
-  digest = stat.symlink? ? Digest::SHA256.hexdigest(File.readlink(entry)) : Digest::SHA256.file(entry).hexdigest
-  format("%o\\t%s\\t%s", stat.mode & 0o7777, relative, digest)
-end
-puts Digest::SHA256.hexdigest(lines.join("\\n") + "\\n")
-' "${HEV_ROOT}")"
+SOURCE_TREE_DIGEST="$(source_tree_digest)"
 ARCHIVE_SHA256="$(shasum -a 256 "${SLICE_ROOT}/libFoloHevPacketFlow.a" | awk '{print $1}')"
 ARCHIVE_BYTES="$(wc -c < "${SLICE_ROOT}/libFoloHevPacketFlow.a" | tr -d ' ')"
 cat > "${BUILD_ROOT}/artifact-manifest.yml" <<EOF
