@@ -1,0 +1,39 @@
+schemaVersion: 1
+evaluation: xray-rust-long-term-replacement
+date: 2026-09-04
+source:
+  coreCommit: 549807d621fadc618e6d0bab75f9e58ef35a7fc1
+  mobileCommit: 377bc2523a97b4faf3b039b65dce2a94381c2e6e
+  mobileAppleArtifactSHA256: 4d2d72fbbb44ebcde2d1fa129ff87e2b055933597656b35cb096bcdeef7ed84c
+decision: no-go
+productionCore: unchanged
+integration: not-approved
+blockingFindings:
+  - id: runtime-license
+    detail: webpki-roots-1.0.9 uses CDLA-Permissive-2.0 in the iOS normal runtime graph
+  - id: runtime-license
+    detail: zlib-rs-0.6.7 uses Zlib in the iOS normal runtime graph
+  - id: rust-toolchain
+    detail: Rust 1.96.0 is not installed and this evaluation never auto-installs it
+  - id: apple-matrix
+    detail: x86_64 iOS target and required tvOS nightly are unavailable locally
+  - id: packetflow-boundary
+    detail: candidate mobile provider contains private utun descriptor discovery and is not consumed
+  - id: artifact
+    detail: no locally verified XCFramework content, ABI symbols, signature, or link result
+  - id: device
+    detail: no real-device or controlled-service evidence was collected
+evidenceLimits:
+  - macOS benchmark output is not iOS footprint evidence
+  - candidate fixtures are not protocol interoperability evidence
+  - VLESS/TCP/REALITY/Vision is the only evaluated configuration subset
+  - VMess/Trojan/Shadowsocks/WireGuard are not implemented by this evaluation
+sourceBoundary:
+  mplSourceAndModificationsRemainIn: core
+  privateIOSConsumesOnlyApprovedArtifact: true
+  forbiddenImplementationsReadOrCopied: false
+nextGate:
+  - resolve dependency licenses or obtain an explicitly approved alternative
+  - provide the pinned Rust/Apple matrix and independently verify artifact contents
+  - provide security/legal approval and a public PacketFlow-only adapter
+  - coordinate device testing with the primary agent
