@@ -76,27 +76,38 @@ FoloHevPacketFlowStart (const uint8_t *config_bytes,
                         int32_t packet_endpoint_fd)
 {
   struct hev_context *context;
+  int owned_endpoint_fd;
   int result;
 
   if (!config_bytes || config_length == 0 ||
       config_length > FOLO_HEV_MAX_CONFIG_BYTES || packet_endpoint_fd < 0)
     return FOLO_HEV_PACKETFLOW_INVALID_ARGUMENT;
 
-  context = calloc (1, sizeof (*context));
-  if (!context)
+  /* The caller keeps its descriptor. Hev owns this private duplicate and
+   * closes it exactly once from the worker thread, including start failure. */
+  owned_endpoint_fd = dup (packet_endpoint_fd);
+  if (owned_endpoint_fd < 0)
     return FOLO_HEV_PACKETFLOW_START_FAILED;
+
+  context = calloc (1, sizeof (*context));
+  if (!context) {
+    close (owned_endpoint_fd);
+    return FOLO_HEV_PACKETFLOW_START_FAILED;
+  }
   context->config = malloc (config_length);
   if (!context->config) {
+    close (owned_endpoint_fd);
     free (context);
     return FOLO_HEV_PACKETFLOW_START_FAILED;
   }
   memcpy (context->config, config_bytes, config_length);
   context->config_length = (unsigned int)config_length;
-  context->endpoint_fd = packet_endpoint_fd;
+  context->endpoint_fd = owned_endpoint_fd;
 
   pthread_mutex_lock (&state_lock);
   if (active_context || state != FOLO_HEV_PACKETFLOW_IDLE) {
     pthread_mutex_unlock (&state_lock);
+    close (owned_endpoint_fd);
     free (context->config);
     free (context);
     return FOLO_HEV_PACKETFLOW_INVALID_STATE;
@@ -108,6 +119,7 @@ FoloHevPacketFlowStart (const uint8_t *config_bytes,
     active_context = NULL;
     state = FOLO_HEV_PACKETFLOW_IDLE;
     pthread_mutex_unlock (&state_lock);
+    close (owned_endpoint_fd);
     free (context->config);
     free (context);
     return FOLO_HEV_PACKETFLOW_START_FAILED;

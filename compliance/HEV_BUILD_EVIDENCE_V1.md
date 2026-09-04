@@ -57,3 +57,19 @@ sdk 26.5
   12-byte framing、有限队列、真实代理通流和生命周期故障注入。
 - 未执行实体设备安装、签名、网络通流或 A/B 压测。
 - `compliance/HEV_DEPENDENCY_APPROVAL_V1.yml` 的人工许可审查仍为 pending。
+
+## 后续 wrapper ownership 复测（2026-09-04）
+
+为让 iOS Staging driver 在失败路径也保持单一 descriptor 所有者，wrapper 现在
+对调用方传入的 stream peer 执行 `dup`：调用方保留并关闭原 descriptor，Hev
+worker 独占并关闭副本，包含初始化失败和 stop 路径。该变化不打开或发现任何
+系统 tunnel descriptor。
+
+变更后重新执行同一锁定构建，结果仍为 `hev_apple_build=pass`；归档为
+`676328` bytes，SHA-256 为：
+
+```text
+5372d152321c3dfcbd2e707b16f881547ff4d358c03162863d6f59ea48b508c1
+```
+
+三个 Hev ABI 符号和 `platform 2 / minos 17.0 / sdk 26.5` 链接夹具继续通过。
