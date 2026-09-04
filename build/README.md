@@ -42,6 +42,12 @@ bounded PacketFlow v1 framing/loopback endpoint for validating complete
 IPv4/IPv6 packet transport over a public `SOCK_STREAM` socketpair. It does not
 parse proxy protocols or create a listener; the private Swift bridge owns
 `NEPacketTunnelFlow`, and the real VLESS/TUN data plane remains a later gate.
+Stage 11 adds the `FoloXraySocks5Outbound*` ABI. It binds only a dynamic
+`127.0.0.1` endpoint, accepts unauthenticated SOCKS5 CONNECT, and dispatches
+the requested destination through the already-running managed Xray outbound.
+The endpoint is not configurable through profile JSON; UDP ASSOCIATE, BIND,
+authentication and non-loopback listeners are excluded. Its counters report
+only bounded connection lifecycle/socket costs.
 Stage 14 adds the bounded `FoloXrayNetstack*` packet ABI for the private Rust
 Packet Tunnel. The ABI injects and drains complete IPv4/IPv6 packets and does
 not add listeners or generic configuration entry points. The retired Stage-13

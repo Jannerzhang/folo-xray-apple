@@ -12,17 +12,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"runtime"
 	"runtime/debug"
 	"sync"
 	"time"
 	"unsafe"
 
+	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 	"github.com/xtls/xray-core/core"
 	featureStats "github.com/xtls/xray-core/features/stats"
 	_ "github.com/xtls/xray-core/main/distro/folo"
 	"github.com/xtls/xray-core/main/folotun"
-	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
 
 var scavengerOnce sync.Once
@@ -101,6 +102,19 @@ var packetBridge = struct {
 	lastError: "ok",
 }
 
+var socks5Outbound = struct {
+	sync.Mutex
+	server    *folotun.Socks5OutboundServer
+	port      uint16
+	state     int32
+	lastCode  int32
+	lastError string
+}{
+	state:     stateIdle,
+	lastCode:  statusOK,
+	lastError: "ok",
+}
+
 func setErrorLocked(code int32, message string) int32 {
 	engine.lastCode = code
 	engine.lastError = message
@@ -121,6 +135,17 @@ func setPacketBridgeErrorLocked(code int32, message string) int32 {
 func clearPacketBridgeErrorLocked() {
 	packetBridge.lastCode = statusOK
 	packetBridge.lastError = "ok"
+}
+
+func setSocks5OutboundErrorLocked(code int32, message string) int32 {
+	socks5Outbound.lastCode = code
+	socks5Outbound.lastError = message
+	return code
+}
+
+func clearSocks5OutboundErrorLocked() {
+	socks5Outbound.lastCode = statusOK
+	socks5Outbound.lastError = "ok"
 }
 
 func copyConfig(configBytes *C.uint8_t, configLength C.size_t) ([]byte, int32) {
@@ -266,6 +291,122 @@ func FoloXrayPacketBridgeCopyStatsJSON() *C.char {
 	return C.CString(string(payload))
 }
 
+//export FoloXraySocks5OutboundStart
+func FoloXraySocks5OutboundStart() C.int32_t {
+	engine.Lock()
+	instance := engine.instance
+	running := engine.state == stateRunning
+	if instance == nil || !running {
+		engine.Unlock()
+		socks5Outbound.Lock()
+		defer socks5Outbound.Unlock()
+		return C.int32_t(setSocks5OutboundErrorLocked(statusInvalidState, "engine is not running"))
+	}
+
+	server, err := folotun.NewSocks5OutboundServer(instance)
+	if err != nil {
+		engine.Unlock()
+		socks5Outbound.Lock()
+		defer socks5Outbound.Unlock()
+		return C.int32_t(setSocks5OutboundErrorLocked(statusStartFailed, "SOCKS5 server unavailable"))
+	}
+	if err := server.Start(); err != nil {
+		engine.Unlock()
+		return C.int32_t(statusStartFailed)
+	}
+	addr, ok := server.Addr().(*net.TCPAddr)
+	if !ok || addr.Port <= 0 || addr.Port > 65535 || !addr.IP.IsLoopback() {
+		_ = server.Stop()
+		engine.Unlock()
+		return C.int32_t(statusStartFailed)
+	}
+
+	socks5Outbound.Lock()
+	if socks5Outbound.server != nil || socks5Outbound.state == stateRunning {
+		socks5Outbound.Unlock()
+		_ = server.Stop()
+		engine.Unlock()
+		return C.int32_t(statusInvalidState)
+	}
+	socks5Outbound.server = server
+	socks5Outbound.port = uint16(addr.Port)
+	socks5Outbound.state = stateRunning
+	clearSocks5OutboundErrorLocked()
+	socks5Outbound.Unlock()
+	engine.Unlock()
+	return C.int32_t(statusOK)
+}
+
+//export FoloXraySocks5OutboundStop
+func FoloXraySocks5OutboundStop() C.int32_t {
+	socks5Outbound.Lock()
+	server := socks5Outbound.server
+	socks5Outbound.server = nil
+	socks5Outbound.port = 0
+	socks5Outbound.state = stateIdle
+	clearSocks5OutboundErrorLocked()
+	socks5Outbound.Unlock()
+	if server != nil {
+		_ = server.Stop()
+	}
+	return C.int32_t(statusOK)
+}
+
+//export FoloXraySocks5OutboundState
+func FoloXraySocks5OutboundState() C.int32_t {
+	socks5Outbound.Lock()
+	defer socks5Outbound.Unlock()
+	return C.int32_t(socks5Outbound.state)
+}
+
+//export FoloXraySocks5OutboundPort
+func FoloXraySocks5OutboundPort() C.uint16_t {
+	socks5Outbound.Lock()
+	defer socks5Outbound.Unlock()
+	return C.uint16_t(socks5Outbound.port)
+}
+
+type socks5OutboundStats struct {
+	State                int32  `json:"state"`
+	Port                 uint16 `json:"port"`
+	AcceptedConnections  uint64 `json:"accepted_connections"`
+	RejectedConnections  uint64 `json:"rejected_connections"`
+	ActiveConnections    uint64 `json:"active_connections"`
+	PeakConnections      uint64 `json:"peak_connections"`
+	CompletedConnections uint64 `json:"completed_connections"`
+	DialFailures         uint64 `json:"dial_failures"`
+	LastError            string `json:"last_error"`
+}
+
+//export FoloXraySocks5OutboundCopyStatsJSON
+func FoloXraySocks5OutboundCopyStatsJSON() *C.char {
+	socks5Outbound.Lock()
+	state := socks5Outbound.state
+	port := socks5Outbound.port
+	server := socks5Outbound.server
+	lastError := socks5Outbound.lastError
+	var stats folotun.Socks5OutboundStats
+	if server != nil {
+		stats = server.Stats()
+	}
+	socks5Outbound.Unlock()
+	payload, err := json.Marshal(socks5OutboundStats{
+		State:                state,
+		Port:                 port,
+		AcceptedConnections:  stats.AcceptedConnections,
+		RejectedConnections:  stats.RejectedConnections,
+		ActiveConnections:    stats.ActiveConnections,
+		PeakConnections:      stats.PeakConnections,
+		CompletedConnections: stats.CompletedConnections,
+		DialFailures:         stats.DialFailures,
+		LastError:            lastError,
+	})
+	if err != nil {
+		return C.CString(`{"state":0,"last_error":"encoding_failed"}`)
+	}
+	return C.CString(string(payload))
+}
+
 //export FoloXrayNetstackStart
 func FoloXrayNetstackStart() C.int32_t {
 	engine.Lock()
@@ -374,6 +515,7 @@ func FoloXrayStartJSON(configBytes *C.uint8_t, configLength C.size_t) C.int32_t 
 func FoloXrayStop() C.int32_t {
 	engine.Lock()
 	defer engine.Unlock()
+	_ = FoloXraySocks5OutboundStop()
 
 	if engine.instance == nil {
 		engine.state = stateIdle

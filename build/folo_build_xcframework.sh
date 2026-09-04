@@ -187,6 +187,11 @@ printf '%s\n' \
 	_FoloXrayPacketBridgeStart \
 	_FoloXrayPacketBridgeState \
 	_FoloXrayPacketBridgeStop \
+	_FoloXraySocks5OutboundCopyStatsJSON \
+	_FoloXraySocks5OutboundPort \
+	_FoloXraySocks5OutboundStart \
+	_FoloXraySocks5OutboundState \
+	_FoloXraySocks5OutboundStop \
 	_FoloXrayCopyLastError \
   _FoloXrayCopyStatsJSON \
   _FoloXrayCopyVersion \

@@ -26,6 +26,11 @@ integration remains in the private folo-ios repository.
 - `FoloXrayPacketBridgeStop`, `FoloXrayPacketBridgeState`, and
   `FoloXrayPacketBridgeCopyStatsJSON` provide idempotent close/state/stats for
   that endpoint;
+- `FoloXraySocks5OutboundStart` binds one dynamic `127.0.0.1` TCP endpoint and
+  dispatches SOCKS5 CONNECT requests through the already-running Xray outbound;
+  the matching state, port, stop and data-free stats calls are the only public
+  controls. UDP ASSOCIATE, BIND, authentication and arbitrary listener
+  configuration are intentionally excluded;
 - `FoloXrayNetstackStart`/`Stop` and
   `FoloXrayNetstackWritePacket`/`ReadPacket` provide the bounded gVisor
   netstack packet ABI used by the private Packet Tunnel;

@@ -44,6 +44,16 @@ int32_t FoloXrayPacketBridgeStop(void);
 int32_t FoloXrayPacketBridgeState(void);
 char *FoloXrayPacketBridgeCopyStatsJSON(void);
 
+// Stage-11 loopback SOCKS5 CONNECT endpoint backed by the managed Xray
+// outbound dispatcher. The endpoint always binds 127.0.0.1 on a dynamic port;
+// only the selected port is returned to the caller. UDP ASSOCIATE and BIND are
+// intentionally not part of this ABI.
+int32_t FoloXraySocks5OutboundStart(void);
+int32_t FoloXraySocks5OutboundStop(void);
+int32_t FoloXraySocks5OutboundState(void);
+uint16_t FoloXraySocks5OutboundPort(void);
+char *FoloXraySocks5OutboundCopyStatsJSON(void);
+
 // Stage-14 netstack packet boundary. Start requires a running managed Xray
 // instance. WritePacket copies and injects one complete IPv4/IPv6 packet;
 // ReadPacket is non-blocking and returns FOLO_XRAY_WOULD_BLOCK when the
