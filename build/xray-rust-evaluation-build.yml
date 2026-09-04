@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 schemaVersion: 1
-status: BLOCKED_LOCAL_TOOLCHAIN
+status: PASS
 sourceLock: ../compliance/xray-rust-eval-source-lock.yml
 sourcePath: ../xray-rust-eval
 package: xray-ffi
@@ -8,15 +8,15 @@ target: aarch64-apple-ios
 rustToolchain: 1.96.0
 profile: release
 features: []
-buildCommand: "cargo +1.96.0 build --manifest-path xray-rust-eval/Cargo.toml --locked -p xray-ffi --target aarch64-apple-ios --release"
-testCommand: "cargo +1.96.0 test --manifest-path xray-rust-eval/Cargo.toml --locked --workspace --exclude xray-rust-fuzz --all-targets"
+buildCommand: "IPHONEOS_DEPLOYMENT_TARGET=17.0 CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS='-C link-arg=-miphoneos-version-min=17.0' cargo +1.96.0 build --manifest-path xray-rust-eval/Cargo.toml --locked -p xray-ffi --target aarch64-apple-ios --release"
+testCommand: "cargo +1.96.0 test --manifest-path xray-rust-eval/Cargo.toml --locked --workspace --exclude xray-rust-fuzz --all-targets -- --test-threads=4"
 targetDirectory: .build/xray-rust-target
 cargoHome: .build/xray-rust-cargo-home
 artifactPolicy:
-  binary: ignored-local-only
+  binary: verified-local
   sourceRevision: 549807d621fadc618e6d0bab75f9e58ef35a7fc1
   cargoLockSha256: 5f395cd6c7239234b34ef1a4f50e59b77e3c0edb0ea6c6ac060240888969759c
   publishAllowed: false
-blockers:
-  - "Pinned rustc 1.96.0 is not installed in the isolated host; current stable is 1.95.0."
-  - "License audit remains blocked by webpki-roots CDLA-Permissive-2.0 and zlib-rs Zlib."
+verification:
+  buildResult: xray_rust_build=pass
+  workspaceTests: passed

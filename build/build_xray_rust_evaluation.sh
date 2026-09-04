@@ -34,8 +34,10 @@ echo "xray_rust_cargo_home=$cargo_home"
 env CARGO_HOME="$cargo_home" CARGO_TARGET_DIR="$target_dir" \
   cargo +1.96.0 test \
   --manifest-path "$source_root/Cargo.toml" \
-  --locked --workspace --exclude xray-rust-fuzz --all-targets
+  --locked --workspace --exclude xray-rust-fuzz --all-targets -- --test-threads=4
 env CARGO_HOME="$cargo_home" CARGO_TARGET_DIR="$target_dir" \
+  IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+  CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS="-C link-arg=-miphoneos-version-min=17.0" \
   cargo +1.96.0 build \
   --manifest-path "$source_root/Cargo.toml" \
   --locked -p xray-ffi --target aarch64-apple-ios --release
