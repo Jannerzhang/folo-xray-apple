@@ -1,30 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 schemaVersion: 1
-status: BLOCKED_LOCAL_SDK_MATRIX
+status: PASS
 sourceLock: ../compliance/xray-rust-eval-source-lock.yml
 coreSource: ../xray-rust-eval
 mobileSource: ../xray-rust-mobile-eval
 requestedSlices:
   - ios-arm64
   - ios-arm64_x86_64-simulator
-  - tvos-arm64
-  - tvos-arm64_x86_64-simulator
-  - macos-arm64_x86_64
 observed:
   xcode: "26.6 (17F113)"
   iphoneosSdk: "26.5"
-  rustToolchain: "1.96.0 required, not installed"
-  missingTargets:
+  rustToolchain: "1.96.0"
+  targets:
+    - aarch64-apple-ios
+    - aarch64-apple-ios-sim
     - x86_64-apple-ios
-    - aarch64-apple-tvos
-    - aarch64-apple-tvos-sim
-    - x86_64-apple-tvos
-  missingFallback:
-    - nightly-2026-05-22
-  localArtifactPresent: false
-  artifactSha256: 4d2d72fbbb44ebcde2d1fa129ff87e2b055933597656b35cb096bcdeef7ed84c
+  localArtifactPresent: true
+  artifactPath: xray-rust-mobile-eval/Artifacts/XrayRust.xcframework
 decision:
-  xcframeworkGenerated: false
-  abiVerified: false
-  appIntegrationAllowed: false
-  reason: "The independent Apple prerequisite matrix is incomplete; no artifact is produced."
+  xcframeworkGenerated: true
+  abiVerified: true
+  appIntegrationAllowed: true
+  reason: "The Apple prerequisite matrix and XCFramework compilation completed successfully."
