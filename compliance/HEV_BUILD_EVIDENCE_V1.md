@@ -7,14 +7,14 @@
 
 - candidate：`a404c11cd61d8e29e6f4c590b7e659d127fb843e`
 - candidate tree：`13bd01e855bc554c245aaf33a0ec587cd71741ce`
-- vendored tree SHA-256：`415cbcdc2fcbcb8e439b3c39170ae24fa0c9ce549f1be6192f45de67b034de75`
+- vendored tree SHA-256：`4b2ba030af2eccd4a03a5821fba09686075023e3213029b6c3b81dfd3a42841f`
 - Xcode：`26.6 (17F113)`
 - SDK：`iphoneos 26.5`
 - deployment target：`iOS 17.0`
 - target：`arm64-apple-ios`
 - 本地 patch：`packetflow-backend-and-readiness-hooks`
 
-## 执行结果
+## 初始基线构建结果（历史）
 
 在 `core` 仓库执行两次独立 clean build：
 
@@ -74,7 +74,7 @@ worker 独占并关闭副本，包含初始化失败和 stop 路径。该变化�
 
 三个 Hev ABI 符号和 `platform 2 / minos 17.0 / sdk 26.5` 链接夹具继续通过。
 
-## 当前 wrapper 归档复测（2026-09-04）
+## 上一版 wrapper 归档复测（已被后续证据替代）
 
 Core `5b30922f4b9f4f1266a3b856d79a7dd08aae1c95` 增加 Hev 配置解析失败时的
 worker-return 唤醒路径和 worker 已退出时的幂等 Stop 清理，并由 host fixture 验证
@@ -89,3 +89,32 @@ f3b5e31517a14daa4947817ae868f0466eff4ad89034dcc798ea7e9dcdd5f548
 
 ABI 符号、iOS arm64 链接夹具和 host native-first stop 回归继续通过。该归档仍
 是未签名、local-only 评估输入。
+
+## 当前 packetflow EOF 归档复测（2026-09-04）
+
+Core 提交 `15f2025620630f3caa5e7513cfdc70f8594c9905` 将 PacketFlow framed stream
+的 EOF、畸形 frame 和分配失败从可重试空读改为通过 Hev 正常 event-task 路径退出，
+并由 host fixture 验证 worker 自行回到 `IDLE` 后 wrapper `Stop` 仍可安全回收。
+`d708659` 同时更新 `build/hev_toolchain.lock.yml`，锁定新的 vendored tree
+SHA-256：
+
+```text
+4b2ba030af2eccd4a03a5821fba09686075023e3213029b6c3b81dfd3a42841f
+```
+
+重新执行 `bash build/folo_build_hev_apple.sh`，结果为 `hev_apple_build=pass`。
+当前归档目录为：
+
+```text
+artifacts/hev/a404c11cd61d8e29e6f4c590b7e659d127fb843e-4b2ba030af2eccd4a03a5821fba09686075023e3213029b6c3b81dfd3a42841f/
+```
+
+`ios-arm64/libFoloHevPacketFlow.a` 为 `676400` bytes，SHA-256 为：
+
+```text
+d78e3f905e727a47f6291228dd245e778b33d665e0168bc42efff8715239a896
+```
+
+三个 ABI 符号、`platform 2 / minos 17.0 / sdk 26.5` 链接夹具和
+`hev_host_runtime=pass start=running stop=idle owner=dup` 均通过。归档仍为未签名、
+`local-evaluation-only`，不改变阶段 22/23 的设备与真实通流门禁。
