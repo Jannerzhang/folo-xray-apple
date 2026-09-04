@@ -1,0 +1,50 @@
+[package]
+name = "xray-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "TCP, TLS, REALITY, DNS, and dialing transports for xray-rust"
+
+[dependencies]
+# Direct RustCrypto deps enable zeroize feature unification for AES-GCM internal state.
+aes.workspace = true
+aes-gcm.workspace = true
+async-compression.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+ghash.workspace = true
+h2.workspace = true
+h3.workspace = true
+h3-quinn.workspace = true
+hkdf.workspace = true
+hmac.workspace = true
+http.workspace = true
+idna.workspace = true
+ml-dsa.workspace = true
+polyval.workspace = true
+rand.workspace = true
+regex.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+webpki-roots.workspace = true
+x25519-dalek.workspace = true
+x509-parser.workspace = true
+xray-routing = { path = "../xray-routing" }
+xray-utls = { path = "../xray-utls" }
+zeroize.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

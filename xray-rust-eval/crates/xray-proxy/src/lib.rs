@@ -1,0 +1,6 @@
+pub mod inbound;
+pub mod vless;
+
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}

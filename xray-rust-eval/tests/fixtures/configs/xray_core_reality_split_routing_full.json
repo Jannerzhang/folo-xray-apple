@@ -1,0 +1,143 @@
+{
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "ruleTag": "rule_exclusions_domain",
+        "domain": [
+          "domain:direct.example"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "ruleTag": "rule_exclusions_ip",
+        "ip": [
+          "192.0.2.0/24"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "outbound_49783",
+        "ruleTag": "rule_49783",
+        "inboundTag": [
+          "inbound_49783"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "api",
+        "ruleTag": "rule_api",
+        "inboundTag": [
+          "api"
+        ]
+      }
+    ],
+    "domainStrategy": "IPIfNonMatch"
+  },
+  "inbounds": [
+    {
+      "settings": {
+        "udp": true
+      },
+      "protocol": "socks",
+      "tag": "inbound_49783",
+      "sniffing": {
+        "excludedDomains": [],
+        "enabled": true,
+        "routeOnly": true,
+        "metadataOnly": false,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      },
+      "listen": "[::1]",
+      "port": 49783
+    }
+  ],
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": false,
+        "uplinkOnly": 1,
+        "downlinkOnly": 2,
+        "bufferSize": 8,
+        "handshake": 10,
+        "connIdle": 300,
+        "statsUserDownlink": false
+      }
+    },
+    "system": {
+      "statsOutboundDownlink": false,
+      "statsInboundUplink": false,
+      "statsOutboundUplink": false,
+      "statsInboundDownlink": false
+    }
+  },
+  "log": {
+    "dnsLog": false,
+    "loglevel": "none"
+  },
+  "outbounds": [
+    {
+      "settings": {
+        "vnext": [
+          {
+            "users": [
+              {
+                "level": 8,
+                "id": "00000000-0000-4000-8000-000000000001",
+                "security": "auto",
+                "flow": "xtls-rprx-vision",
+                "encryption": "none"
+              }
+            ],
+            "port": 443,
+            "address": "192.0.2.10"
+          }
+        ]
+      },
+      "protocol": "vless",
+      "mux": {
+        "enabled": false,
+        "concurrency": 8
+      },
+      "streamSettings": {
+        "realitySettings": {
+          "spiderX": "",
+          "serverName": "www.example.com",
+          "show": false,
+          "shortId": "0123456789abcdef",
+          "fingerprint": "firefox",
+          "publicKey": "hSDwCYkwp1R0i33ctD73Wg2_Og0mOBr066SpjqqbTmo",
+          "allowInsecure": false
+        },
+        "tcpSettings": {
+          "header": {
+            "type": "none"
+          }
+        },
+        "network": "tcp",
+        "security": "reality"
+      },
+      "tag": "outbound_49783"
+    },
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    }
+  ],
+  "dns": {
+    "servers": [
+      "192.0.2.53",
+      "198.51.100.53",
+      "203.0.113.53"
+    ],
+    "hosts": {
+      "domain:service.example": "alias.example"
+    }
+  }
+}
