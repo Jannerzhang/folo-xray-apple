@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+record: HEV_DEPENDENCY_APPROVAL_V1
+candidateAudit: compliance/HEV_CANDIDATE_AUDIT_V1.yml
+decision: pending-human-license-review
+reviewer: pending
+reviewedAt: null
+components:
+  - name: hev-socks5-tunnel
+    purpose: Hev packet forwarding engine evaluation in the public core
+    version: a404c11cd61d8e29e6f4c590b7e659d127fb843e
+    source:
+      url: https://github.com/heiher/hev-socks5-tunnel
+      revision: a404c11cd61d8e29e6f4c590b7e659d127fb843e
+      revisionType: commit
+    spdx: MIT
+    originalLicenseTextSha256: 3cca1a91ca82e9b9c41852945ef15858f932828ceeb765b86bc1fe3f39127514
+    direct: true
+    linkMode: source
+    distribution: public-core-evaluation
+    expectedDecision: approved
+    publicSourceOffer: https://github.com/heiher/hev-socks5-tunnel/tree/a404c11cd61d8e29e6f4c590b7e659d127fb843e
+  - name: hev-socks5-core
+    purpose: Hev protocol core submodule
+    version: 162dd996299fc2d2bff2dd63728f8a2cd71ed31a
+    source:
+      url: https://github.com/heiher/hev-socks5-core
+      revision: 162dd996299fc2d2bff2dd63728f8a2cd71ed31a
+      revisionType: commit
+    spdx: MIT
+    originalLicenseTextSha256: 3cca1a91ca82e9b9c41852945ef15858f932828ceeb765b86bc1fe3f39127514
+    direct: false
+    linkMode: source
+    distribution: public-core-evaluation
+    expectedDecision: approved
+  - name: hev-task-system
+    purpose: Hev cooperative task runtime
+    version: 328f35d903221b51811b3d02b277d665dfbdc75f
+    source:
+      url: https://github.com/heiher/hev-task-system
+      revision: 328f35d903221b51811b3d02b277d665dfbdc75f
+      revisionType: commit
+    spdx: MIT
+    originalLicenseTextSha256: 3cca1a91ca82e9b9c41852945ef15858f932828ceeb765b86bc1fe3f39127514
+    direct: false
+    linkMode: source
+    distribution: public-core-evaluation
+    expectedDecision: approved
+  - name: lwip
+    purpose: Hev IPv4/IPv6 packet processing dependency
+    version: 2a11c14c7a32887af25a034e82ef18b0b12076ac
+    source:
+      url: https://github.com/heiher/lwip
+      revision: 2a11c14c7a32887af25a034e82ef18b0b12076ac
+      revisionType: commit
+    spdx: BSD-3-Clause
+    originalLicenseTextSha256: ef4aac92e05e87cd1cdc140870ed52206ba03d4a7fe46c1e11d7ffa6c87d252b
+    direct: false
+    linkMode: source
+    distribution: public-core-evaluation
+    expectedDecision: approved
+  - name: yaml
+    purpose: Hev configuration parser dependency for an isolated evaluation build
+    version: efa36117a8646d26d12b58e05bac472d7854a70d
+    source:
+      url: https://github.com/heiher/yaml
+      revision: efa36117a8646d26d12b58e05bac472d7854a70d
+      revisionType: commit
+    spdx: MIT
+    originalLicenseTextSha256: 3cca1a91ca82e9b9c41852945ef15858f932828ceeb765b86bc1fe3f39127514
+    direct: false
+    linkMode: source
+    distribution: public-core-evaluation
+    expectedDecision: approved
+excludedInputs:
+  - name: wintun
+    path: third-part/wintun
+    expectedDecision: excluded
+    reason: Windows-only; custom binary terms and a GPL-2.0-or-MIT header are outside the iOS evaluation closure.
+  - name: macOS utun backend
+    path: src/hev-tunnel-macos.c
+    expectedDecision: excluded
+    reason: Apple host backend relies on utun control APIs and is not an acceptable PacketFlow integration path.
