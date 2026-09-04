@@ -144,7 +144,7 @@ end
 File.binwrite(path, bytes)
 ' "${SLICE_ROOT}/libFoloHevPacketFlow.a"
 
-cp "${REPO_ROOT}/apple-wrapper/folo_hev_packetflow.h" "${SLICE_ROOT}/folo_hev_packetflow.h"
+cp "${REPO_ROOT}/apple-wrapper/hev/folo_hev_packetflow.h" "${SLICE_ROOT}/folo_hev_packetflow.h"
 file "${SLICE_ROOT}/libFoloHevPacketFlow.a" | tee "${BUILD_ROOT}/logs/file.txt"
 nm -gU "${SLICE_ROOT}/libFoloHevPacketFlow.a" | awk '$3 ~ /^_FoloHevPacketFlow/ {print $3}' | sort -u | tee "${BUILD_ROOT}/symbols.txt"
 grep -q '^_FoloHevPacketFlowStart$' "${BUILD_ROOT}/symbols.txt" || die "start symbol missing"
