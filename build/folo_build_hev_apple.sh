@@ -101,7 +101,7 @@ HEV_INCLUDES=(
   "-I${HEV_ROOT}/third-part/hev-task-system/include"
   "-I${HEV_ROOT}/third-part/hev-task-system/src"
 )
-YAML_CFLAGS='-DYAML_VERSION_MAJOR=0 -DYAML_VERSION_MINOR=2 -DYAML_VERSION_PATCH=5 -DYAML_VERSION_STRING=\"0.2.5\"'
+YAML_CFLAGS='-DYAML_VERSION_MAJOR=0 -DYAML_VERSION_MINOR=2 -DYAML_VERSION_PATCH=5 -DYAML_VERSION_STRING=\"0.2.5\" -DHEV_TUNNEL_PACKETFLOW'
 # The vendored top-level Makefile declares a phony tp-static prerequisite. The
 # three dependency archives are built above with isolated output directories;
 # -o keeps the top-level make from recursively rebuilding them into a shared

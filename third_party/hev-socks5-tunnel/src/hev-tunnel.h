@@ -11,6 +11,9 @@
 #define __HEV_TUNNEL_H__
 
 #include <netinet/in.h>
+#include <errno.h>
+#include <stdint.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <lwip/pbuf.h>
 
@@ -34,7 +37,161 @@
 #include "hev-tunnel-windows.h"
 #endif /* __MSYS__ */
 
-#if defined(HEV_TUNNEL_GENERIC_HEAD)
+#if defined(HEV_TUNNEL_PACKETFLOW)
+static inline int
+hev_packetflow_read_exact (int fd, void *data, size_t length,
+                           HevTaskIOYielder yielder, void *yielder_data)
+{
+    size_t offset = 0;
+
+    while (offset < length) {
+        ssize_t res = hev_task_io_read ((fd), (uint8_t *)data + offset,
+                                        length - offset, yielder,
+                                        yielder_data);
+        if (res <= 0)
+            return -1;
+        offset += (size_t)res;
+    }
+
+    return 0;
+}
+
+static inline int
+hev_packetflow_write_exact (int fd, const void *data, size_t length,
+                            HevTaskIOYielder yielder, void *yielder_data)
+{
+    size_t offset = 0;
+
+    while (offset < length) {
+        ssize_t res = hev_task_io_write ((fd), (const uint8_t *)data + offset,
+                                         length - offset, yielder,
+                                         yielder_data);
+        if (res <= 0)
+            return -1;
+        offset += (size_t)res;
+    }
+
+    return 0;
+}
+
+static inline int
+hev_packetflow_header (const struct pbuf *buf, uint8_t header[12])
+{
+    uint8_t ip_header[40] = { 0 };
+    uint16_t packet_length;
+    uint8_t family;
+    uint8_t protocol;
+
+    if (!buf || !buf->tot_len || buf->tot_len > UINT16_MAX ||
+        pbuf_copy_partial ((struct pbuf *)buf, ip_header,
+                           (u16_t)((buf->tot_len < sizeof (ip_header))
+                                       ? buf->tot_len : sizeof (ip_header)),
+                           0) == 0)
+        return -1;
+
+    packet_length = buf->tot_len;
+    switch (ip_header[0] >> 4) {
+    case 4:
+        if (packet_length < 20 || (ip_header[0] & 0x0f) < 5 ||
+            (uint16_t)((ip_header[0] & 0x0f) * 4) > packet_length ||
+            (uint16_t)(((uint16_t)ip_header[2] << 8) | ip_header[3]) !=
+                packet_length)
+            return -1;
+        family = 4;
+        protocol = ip_header[9];
+        break;
+    case 6:
+        if (packet_length < 40 ||
+            (uint16_t)(40 + (((uint16_t)ip_header[4] << 8) | ip_header[5])) !=
+                packet_length)
+            return -1;
+        family = 6;
+        protocol = ip_header[6];
+        break;
+    default:
+        return -1;
+    }
+
+    header[0] = 0x46;
+    header[1] = 0x50;
+    header[2] = 1;
+    header[3] = family;
+    header[4] = protocol;
+    header[5] = 0;
+    header[6] = 0;
+    header[7] = 0;
+    header[8] = (uint8_t)(packet_length >> 8);
+    header[9] = (uint8_t)packet_length;
+    header[10] = 0;
+    header[11] = 0;
+
+    return 0;
+}
+
+static inline struct pbuf *
+hev_tunnel_read (int fd, int mtu, HevTaskIOYielder yielder, void *yielder_data)
+{
+    uint8_t header[12];
+    struct pbuf *buf, *p;
+    uint8_t expected[12];
+    uint32_t packet_length;
+
+    if (hev_packetflow_read_exact (fd, header, sizeof (header), yielder,
+                                   yielder_data) < 0)
+        return NULL;
+
+    packet_length = ((uint32_t)header[6] << 24) |
+                    ((uint32_t)header[7] << 16) |
+                    ((uint32_t)header[8] << 8) | header[9];
+    if (header[0] != 0x46 || header[1] != 0x50 || header[2] != 1 ||
+        (header[3] != 4 && header[3] != 6) || header[5] || header[10] ||
+        header[11] || !packet_length || packet_length > UINT16_MAX ||
+        (mtu > 0 && packet_length > (uint32_t)mtu))
+        return NULL;
+
+    buf = pbuf_alloc (PBUF_RAW, (u16_t)packet_length, PBUF_RAM);
+    if (!buf)
+        return NULL;
+
+    for (p = buf; p; p = p->next) {
+        if (hev_packetflow_read_exact (fd, p->payload, p->len, yielder,
+                                       yielder_data) < 0) {
+            pbuf_free (buf);
+            return NULL;
+        }
+    }
+
+    if (hev_packetflow_header (buf, expected) < 0 ||
+        memcmp (expected, header, sizeof (header)) != 0) {
+        pbuf_free (buf);
+        return NULL;
+    }
+
+    return buf;
+}
+
+static inline ssize_t
+hev_tunnel_write (int fd, struct pbuf *buf, HevTaskIOYielder yielder,
+                  void *yielder_data)
+{
+    uint8_t header[12];
+    struct pbuf *p;
+
+    if (hev_packetflow_header (buf, header) < 0 ||
+        hev_packetflow_write_exact (fd, header, sizeof (header), yielder,
+                                    yielder_data) < 0)
+        return -1;
+
+    for (p = buf; p; p = p->next) {
+        if (hev_packetflow_write_exact (fd, p->payload, p->len, yielder,
+                                        yielder_data) < 0)
+            return -1;
+    }
+
+    return buf->tot_len;
+}
+
+#elif defined(HEV_TUNNEL_GENERIC_HEAD)
 static inline struct pbuf *
 hev_tunnel_read (int fd, int mtu, HevTaskIOYielder yielder, void *yielder_data)
 {

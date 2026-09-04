@@ -93,7 +93,11 @@ netif_output_handler (struct netif *netif, struct pbuf *p)
 {
     ssize_t s;
 
+#if defined(HEV_TUNNEL_PACKETFLOW)
+    s = hev_tunnel_write (tun_fd, p, task_io_yielder, NULL);
+#else
     s = hev_tunnel_write (tun_fd, p);
+#endif
     if (s <= 0) {
         if (errno == EAGAIN)
             return ERR_WOULDBLOCK;

@@ -26,6 +26,27 @@ truncated, over-sized, or family-mismatched packet is rejected with
 packet. The contract does not parse DNS, routes, subscriptions, Xray JSON, or
 proxy credentials.
 
+For the adopted stream prototype, the byte-level frame is fixed and
+big-endian:
+
+```text
+offset  size  field
+0       2     magic 0x4650 ("FP")
+2       1     version 1
+3       1     family 4 or 6
+4       1     protocol / IPv6 next-header
+5       1     reserved, zero
+6       4     complete IP packet length
+10      2     reserved, zero
+12      n     complete IP packet
+```
+
+The stream reader performs exact reads for the 12-byte header and payload;
+partial POSIX stream reads are not packet boundaries. The writer performs
+exact writes for the complete frame and can abort through the Hev task
+yielder during cancellation. The declared family, protocol, and packet
+length are checked against the IP header before the packet reaches lwIP.
+
 ## 2. Narrow callback ABI
 
 The eventual C ABI uses the following logical operations. Names are normative;
