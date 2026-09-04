@@ -118,3 +118,10 @@ d78e3f905e727a47f6291228dd245e778b33d665e0168bc42efff8715239a896
 三个 ABI 符号、`platform 2 / minos 17.0 / sdk 26.5` 链接夹具和
 `hev_host_runtime=pass start=running stop=idle owner=dup` 均通过。归档仍为未签名、
 `local-evaluation-only`，不改变阶段 22/23 的设备与真实通流门禁。
+
+执行 `bash build/folo_build_hev_host_runtime.sh`；host fixture 后续在提交
+`db2342d06724f992b49a44ab5f80c0fb37e4aaee` 增加有效会话的
+PacketFlow v1 framed IPv4 ICMP Echo Request/Reply 回归；结果仍为
+`hev_host_runtime=pass start=running stop=idle owner=dup`，并验证了 Echo Reply
+的 type 0 与源/目的地址互换。此为 host/lwIP 夹具证据，不改变当前静态库哈希，
+也不替代真实 `NEPacketTunnelFlow`、Xray SOCKS TCP/UDP、设备安装或长稳门禁。
