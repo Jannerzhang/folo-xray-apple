@@ -29,6 +29,7 @@ int
 main (void)
 {
     int descriptors[2] = { -1, -1 };
+    int eof_descriptors[2] = { -1, -1 };
     int result = 0;
 
     if (FoloHevPacketFlowState () != FOLO_HEV_PACKETFLOW_IDLE)
@@ -90,8 +91,46 @@ stop_wrapper:
         result = 24;
     if (result == 0 && fcntl (descriptors[0], F_GETFD) < 0)
         result = 25;
-    if (shutdown (descriptors[0], SHUT_RDWR) != 0 && result == 0)
+    if (result != 0)
+        goto close_descriptors;
+
+    /* A caller-side shutdown must make the adopted Hev worker exit by
+     * itself, rather than leaving the lwIP reader spinning on EOF. */
+    if (socketpair (AF_UNIX, SOCK_STREAM, 0, eof_descriptors) != 0) {
         result = 26;
+        goto close_descriptors;
+    }
+    if (FoloHevPacketFlowStart ((const uint8_t *)config, strlen (config),
+                                eof_descriptors[0]) != FOLO_HEV_PACKETFLOW_OK) {
+        result = 27;
+        goto close_eof_descriptors;
+    }
+    if (FoloHevPacketFlowState () != FOLO_HEV_PACKETFLOW_RUNNING) {
+        result = 28;
+        goto stop_eof_wrapper;
+    }
+    if (shutdown (eof_descriptors[0], SHUT_RDWR) != 0) {
+        result = 29;
+        goto stop_eof_wrapper;
+    }
+    for (int attempt = 0; attempt < 100; attempt++) {
+        if (FoloHevPacketFlowState () == FOLO_HEV_PACKETFLOW_IDLE)
+            break;
+        usleep (1000);
+    }
+    if (FoloHevPacketFlowState () != FOLO_HEV_PACKETFLOW_IDLE) {
+        result = 30;
+        goto stop_eof_wrapper;
+    }
+stop_eof_wrapper:
+    if (FoloHevPacketFlowStop () != FOLO_HEV_PACKETFLOW_OK && result == 0)
+        result = 31;
+    if (result == 0 && fcntl (eof_descriptors[0], F_GETFD) < 0)
+        result = 32;
+
+close_eof_descriptors:
+    close (eof_descriptors[0]);
+    close (eof_descriptors[1]);
 
 close_descriptors:
     close (descriptors[0]);

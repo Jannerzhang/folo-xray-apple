@@ -333,8 +333,14 @@ lwip_io_task_entry (void *data)
         struct pbuf *buf;
 
         buf = hev_tunnel_read (tun_fd, mtu, task_io_yielder, NULL);
-        if (!buf)
-            continue;
+        if (!buf) {
+            /* PacketFlow reads are framed and exact. EOF, a malformed frame,
+             * or an allocation failure is not a transient empty read; keep
+             * the worker from spinning and tear down the engine through its
+             * normal event-task path. */
+            hev_socks5_tunnel_stop ();
+            break;
+        }
 
         stat_tx_packets++;
         stat_tx_bytes += buf->tot_len;
