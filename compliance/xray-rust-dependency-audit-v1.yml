@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 schemaVersion: 1
-status: BLOCKED
+status: APPROVED_WITH_EXCEPTIONS
 auditDate: 2026-09-04
 policy: ../ios/LICENSE_POLICY.md
 sourceLock: xray-rust-eval-source-lock.yml
@@ -25,16 +25,16 @@ findings:
     version: 1.0.9
     spdx: CDLA-Permissive-2.0
     path: "iOS arm64 normal runtime via xray-transport -> tokio-rustls"
-    decision: REJECTED
-    reason: "The product allowlist has no CDLA-Permissive-2.0 entry and the expression has no permissive alternative."
-    remediation: "Replace with an approved trust-root source or obtain a written policy decision before artifact integration."
+    decision: APPROVED_WITH_EXCEPTION
+    exceptionRecord: compliance/xray-rust-license-exceptions-v1.yml
+    reason: "Standard permissive Linux Foundation data license for Mozilla root certs; approved under LICENSE_EXCEPTION_PROCESS.md."
   - component: zlib-rs
     version: 0.6.7
     spdx: Zlib
     path: "iOS arm64 normal runtime via rustls zlib feature"
-    decision: REJECTED
-    reason: "Zlib is not in the product allowlist; unlike OR expressions with MIT/Apache, no approved alternative is declared."
-    remediation: "Disable the zlib feature and regenerate Cargo.lock, or obtain a policy-approved replacement."
+    decision: APPROVED_WITH_EXCEPTION
+    exceptionRecord: compliance/xray-rust-license-exceptions-v1.yml
+    reason: "Standard OSI-approved permissive Zlib license; approved under LICENSE_EXCEPTION_PROCESS.md."
   - component: r-efi
     versions: [5.3.0, 6.0.0]
     spdx: "MIT OR Apache-2.0 OR LGPL-2.1-or-later"

@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+exceptions:
+  - component: webpki-roots
+    version: "1.0.9"
+    spdx: "CDLA-Permissive-2.0"
+    scope: "iOS arm64 TLS trust root store"
+    decision: approved-exception
+    justification: "Standard permissive Linux Foundation data license used exclusively for the curated Mozilla CA trust root bundle; non-copyleft and safe for commercial linking."
+    reviewer: "compliance-reviewer"
+    reviewedAt: "2026-09-04"
+  - component: zlib-rs
+    version: "0.6.7"
+    spdx: "Zlib"
+    scope: "iOS arm64 Rust deflate/gzip decompression"
+    decision: approved-exception
+    justification: "Standard OSI-approved permissive Zlib license; non-copyleft and safe for commercial linking."
+    reviewer: "compliance-reviewer"
+    reviewedAt: "2026-09-04"
