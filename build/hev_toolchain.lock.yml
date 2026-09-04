@@ -15,7 +15,7 @@ compiler:
 source:
   candidate: a404c11cd61d8e29e6f4c590b7e659d127fb843e
   candidateTree: 13bd01e855bc554c245aaf33a0ec587cd71741ce
-  vendorTreeSha256: 50745e7148bec5f502b33702daedab4889a34799972461c52e0e1f6dc6e705f8
+  vendorTreeSha256: 4b2ba030af2eccd4a03a5821fba09686075023e3213029b6c3b81dfd3a42841f
   submodules:
     hev-socks5-core: 162dd996299fc2d2bff2dd63728f8a2cd71ed31a
     hev-task-system: 328f35d903221b51811b3d02b277d665dfbdc75f
