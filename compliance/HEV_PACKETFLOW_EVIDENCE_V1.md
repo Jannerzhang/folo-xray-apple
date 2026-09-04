@@ -69,3 +69,18 @@ the bounded staging configuration, checks the running/idle state transitions,
 and verifies that the caller-owned descriptor remains valid before and after
 stop. It does not open or inspect a system tunnel descriptor and does not claim
 iOS device, SOCKS proxy, or real network traffic success.
+
+## Native-first shutdown recheck (2026-09-04)
+
+The fixture was tightened to stop the public Hev wrapper before shutting down
+the caller's adopted-stream endpoint. The same command completed with:
+
+```text
+hev_host_runtime=pass start=running stop=idle owner=dup
+```
+
+This ordering is required by the current Hev packetflow loop: a caller-side
+EOF can be observed as a retry while the native worker is still running. The
+fixture therefore covers the safe native-first lifecycle order and then
+confirms the caller descriptor can still be shut down and closed. This remains
+a host-only lifecycle proof, not a device or real-traffic proof.

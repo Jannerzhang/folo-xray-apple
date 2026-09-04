@@ -46,14 +46,16 @@ main (void)
         result = 14;
         goto stop_wrapper;
     }
-
 stop_wrapper:
+    /* Stop Hev before the caller closes its adopted-stream endpoint. */
     if (FoloHevPacketFlowStop () != FOLO_HEV_PACKETFLOW_OK && result == 0)
         result = 15;
     if (FoloHevPacketFlowState () != FOLO_HEV_PACKETFLOW_IDLE && result == 0)
         result = 16;
     if (result == 0 && fcntl (descriptors[0], F_GETFD) < 0)
         result = 17;
+    if (shutdown (descriptors[0], SHUT_RDWR) != 0 && result == 0)
+        result = 18;
 
 close_descriptors:
     close (descriptors[0]);
