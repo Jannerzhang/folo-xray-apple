@@ -114,8 +114,8 @@ make -o tp-static -C "${HEV_ROOT}" \
   THIRDPARTDIR="${HEV_ROOT}/third-part" static
 
 "${CLANG}" ${COMMON_CFLAGS} "${HEV_INCLUDES[@]}" \
-  -I"${REPO_ROOT}/apple-wrapper" -c \
-  "${REPO_ROOT}/apple-wrapper/folo_hev_packetflow.c" \
+  -I"${REPO_ROOT}/apple-wrapper/hev" -c \
+  "${REPO_ROOT}/apple-wrapper/hev/folo_hev_packetflow.c" \
   -o "${SLICE_ROOT}/folo_hev_packetflow.o"
 
 libtool -static -o "${SLICE_ROOT}/libFoloHevPacketFlow.a" \

@@ -33,8 +33,8 @@ enum FoloHevPacketFlowState {
 
 /*
  * Start Hev over an already-created public PacketFlow stream endpoint. The
- * endpoint is adopted only after a successful return; no tunnel descriptor is
- * opened or discovered by this API. The configuration is a bounded Hev
+ * endpoint is adopted only after a successful return; no tunnel descriptor
+ * is opened or discovered by this API. The configuration is a bounded Hev
  * evaluation profile whose SOCKS5 endpoint must be supplied by the caller.
  */
 FOLO_HEV_API int32_t FoloHevPacketFlowStart(const uint8_t *config_bytes,
