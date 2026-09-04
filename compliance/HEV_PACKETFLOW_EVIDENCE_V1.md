@@ -84,3 +84,12 @@ EOF can be observed as a retry while the native worker is still running. The
 fixture therefore covers the safe native-first lifecycle order and then
 confirms the caller descriptor can still be shut down and closed. This remains
 a host-only lifecycle proof, not a device or real-traffic proof.
+
+## Startup failure recheck (2026-09-04)
+
+The host fixture also submits a deliberately malformed bounded configuration
+before the valid start. Hev reports the parse failure and the public wrapper
+returns `FOLO_HEV_PACKETFLOW_START_FAILED`; the following state check is
+`FOLO_HEV_PACKETFLOW_IDLE`. This covers the failure path where Hev exits before
+its normal readiness callback and prevents a synchronous caller from waiting
+indefinitely.

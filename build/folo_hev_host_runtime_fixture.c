@@ -20,6 +20,10 @@ static const char config[] =
     "  address: 127.0.0.1\n"
     "  udp: 'udp'\n";
 
+static const char invalid_config[] =
+    "tunnel:\n"
+    "  mtu: [\n";
+
 int
 main (void)
 {
@@ -30,6 +34,17 @@ main (void)
         return 10;
     if (socketpair (AF_UNIX, SOCK_STREAM, 0, descriptors) != 0)
         return 11;
+
+    if (FoloHevPacketFlowStart ((const uint8_t *)invalid_config,
+                                strlen (invalid_config), descriptors[0]) !=
+        FOLO_HEV_PACKETFLOW_START_FAILED) {
+        result = 19;
+        goto close_descriptors;
+    }
+    if (FoloHevPacketFlowState () != FOLO_HEV_PACKETFLOW_IDLE) {
+        result = 20;
+        goto close_descriptors;
+    }
 
     if (FoloHevPacketFlowStart ((const uint8_t *)config, strlen (config),
                                 descriptors[0]) != FOLO_HEV_PACKETFLOW_OK) {

@@ -59,6 +59,13 @@ hev_thread_main (void *opaque)
       context->config, context->config_length, context->endpoint_fd);
 
   pthread_mutex_lock (&state_lock);
+  /* Configuration parsing can fail before Hev reaches the lifecycle hook.
+   * Wake the synchronous Start caller from the worker-return path so a bad
+   * configuration is reported instead of leaving it blocked forever. */
+  if (!context->init_done) {
+    context->init_done = 1;
+    context->init_result = result;
+  }
   if (active_context == context)
     state = FOLO_HEV_PACKETFLOW_IDLE;
   pthread_cond_broadcast (&state_condition);
