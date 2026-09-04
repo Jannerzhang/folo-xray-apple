@@ -1,0 +1,59 @@
+# Hev Apple arm64 构建证据
+
+本记录只证明本地评估闭包可以按锁定工具链构建并链接；它不代表人工许可
+批准、App 分发批准、真机通流或生产替换。
+
+## 锁定输入
+
+- candidate：`a404c11cd61d8e29e6f4c590b7e659d127fb843e`
+- candidate tree：`13bd01e855bc554c245aaf33a0ec587cd71741ce`
+- vendored tree SHA-256：`415cbcdc2fcbcb8e439b3c39170ae24fa0c9ce549f1be6192f45de67b034de75`
+- Xcode：`26.6 (17F113)`
+- SDK：`iphoneos 26.5`
+- deployment target：`iOS 17.0`
+- target：`arm64-apple-ios`
+- 本地 patch：`packetflow-backend-and-readiness-hooks`
+
+## 执行结果
+
+在 `core` 仓库执行两次独立 clean build：
+
+```sh
+bash build/folo_build_hev_apple.sh
+```
+
+两次退出码均为 `0`。脚本每次先删除当前 candidate + vendor digest 的明确产物
+目录，再编译 Hev、任务系统、YAML、lwIP 和公开包装层。最终静态库两次均为
+`675432` bytes，SHA-256 均为：
+
+```text
+6063d0d00b8f7434561b26ed73023b881ec197899652e2bc4d26be03bb87d94e
+```
+
+静态符号检查通过：
+
+```text
+_FoloHevPacketFlowStart
+_FoloHevPacketFlowState
+_FoloHevPacketFlowStop
+```
+
+链接夹具检查通过：
+
+```text
+Mach-O 64-bit executable arm64
+platform 2
+minos 17.0
+sdk 26.5
+```
+
+归档时间字段在构建脚本中被规范化，以消除 Apple `ar`/`libtool` 的墙上时钟
+差异；对象内容、来源树和编译输入未被篡改。构建日志和清单写入被忽略的
+`artifacts/hev/<candidate>-<vendorTreeSha256>/` 目录，不进入 App 分发路径。
+
+## 未验证项
+
+- 端点仍是公开 API 创建后显式交给核心的评估接口；尚未完成 PacketFlow v1
+  12-byte framing、有限队列、真实代理通流和生命周期故障注入。
+- 未执行实体设备安装、签名、网络通流或 A/B 压测。
+- `compliance/HEV_DEPENDENCY_APPROVAL_V1.yml` 的人工许可审查仍为 pending。

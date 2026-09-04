@@ -102,7 +102,11 @@ HEV_INCLUDES=(
   "-I${HEV_ROOT}/third-part/hev-task-system/src"
 )
 YAML_CFLAGS='-DYAML_VERSION_MAJOR=0 -DYAML_VERSION_MINOR=2 -DYAML_VERSION_PATCH=5 -DYAML_VERSION_STRING=\"0.2.5\"'
-make -C "${HEV_ROOT}" \
+# The vendored top-level Makefile declares a phony tp-static prerequisite. The
+# three dependency archives are built above with isolated output directories;
+# -o keeps the top-level make from recursively rebuilding them into a shared
+# path (and from making the final archive depend on make's host layout).
+make -o tp-static -C "${HEV_ROOT}" \
   CC="${CLANG}" AR="${AR}" \
   CFLAGS="${YAML_CFLAGS} ${COMMON_CFLAGS} ${HEV_INCLUDES[*]}" \
   BINDIR="${SLICE_ROOT}/hev/bin" BUILDDIR="${SLICE_ROOT}/hev/build" \
@@ -120,6 +124,25 @@ libtool -static -o "${SLICE_ROOT}/libFoloHevPacketFlow.a" \
   "${SLICE_ROOT}/task/bin/libhev-task-system.a" \
   "${SLICE_ROOT}/yaml/bin/libyaml.a" \
   "${SLICE_ROOT}/lwip/bin/liblwip.a"
+
+# Apple ar/libtool stamps archive members with the wall clock. Normalize only
+# the archive header timestamps so the evaluation artifact has a stable hash;
+# object contents and the source-tree digest remain untouched.
+ruby -e '
+path = ARGV.fetch(0)
+bytes = File.binread(path)
+raise "not an ar archive" unless bytes.start_with?("!<arch>\n")
+offset = 8
+while offset < bytes.bytesize
+  raise "truncated ar header" if offset + 60 > bytes.bytesize
+  size = bytes.byteslice(offset + 48, 10).to_i
+  raise "truncated ar member" if offset + 60 + size > bytes.bytesize
+  bytes[offset + 16, 12] = "0".ljust(12)
+  offset += 60 + size
+  offset += 1 if offset.odd?
+end
+File.binwrite(path, bytes)
+' "${SLICE_ROOT}/libFoloHevPacketFlow.a"
 
 cp "${REPO_ROOT}/apple-wrapper/folo_hev_packetflow.h" "${SLICE_ROOT}/folo_hev_packetflow.h"
 file "${SLICE_ROOT}/libFoloHevPacketFlow.a" | tee "${BUILD_ROOT}/logs/file.txt"
