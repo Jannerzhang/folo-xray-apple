@@ -48,3 +48,24 @@ tests (`75f51df`) passed `4` tests.
 Shutdown coverage at this stage is limited to endpoint close idempotence and
 the link fixture's invalid-start/stop API checks. A running Hev session has not
 been connected to a real `NEPacketTunnelFlow`, SOCKS proxy, or physical device.
+
+## Host wrapper lifecycle recheck (2026-09-04)
+
+Core commit `97c8a41` adds a reproducible host-only fixture and executes:
+
+```sh
+bash build/folo_build_hev_host_runtime.sh
+```
+
+Result:
+
+```text
+hev_host_runtime=pass start=running stop=idle owner=dup
+```
+
+The fixture builds the `HEV_TUNNEL_PACKETFLOW` closure in a temporary directory,
+creates its own POSIX `SOCK_STREAM` socketpair, calls the public Hev wrapper with
+the bounded staging configuration, checks the running/idle state transitions,
+and verifies that the caller-owned descriptor remains valid before and after
+stop. It does not open or inspect a system tunnel descriptor and does not claim
+iOS device, SOCKS proxy, or real network traffic success.
