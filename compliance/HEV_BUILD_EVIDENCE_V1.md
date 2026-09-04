@@ -123,5 +123,20 @@ d78e3f905e727a47f6291228dd245e778b33d665e0168bc42efff8715239a896
 `db2342d06724f992b49a44ab5f80c0fb37e4aaee` 增加有效会话的
 PacketFlow v1 framed IPv4 ICMP Echo Request/Reply 回归；结果仍为
 `hev_host_runtime=pass start=running stop=idle owner=dup`，并验证了 Echo Reply
-的 type 0 与源/目的地址互换。此为 host/lwIP 夹具证据，不改变当前静态库哈希，
-也不替代真实 `NEPacketTunnelFlow`、Xray SOCKS TCP/UDP、设备安装或长稳门禁。
+的 type 0 与源/目的地址互换。
+
+随后在当前阶段，host fixture 进一步接入轻量级回环 SOCKS5 模拟服务端，
+完整验证有效 Hev 会话的 PacketFlow v1 framed IPv4 TCP 与 UDP 双向通流：
+- TCP：注入完整 IPv4 TCP SYN 帧（40 bytes），接收 Hev lwIP 发出的 SYN-ACK，
+  回发 ACK，注入带负载 "PING\n" 的 TCP 数据帧（45 bytes），SOCKS5 服务端
+  接收 CONNECT 请求并回显 "PONG\n"，Hev lwIP 封装后由 adopted stream 输出，
+  夹具校验负载并发送 FIN-ACK 平闭；
+- UDP：注入完整 IPv4 UDP 帧（37 bytes，负载 "UDP_PING\n"），Hev 经由 lwIP
+  转为 RFC 1928 SOCKS5 UDP 数据报发至 SOCKS5 UDP relay 端口，服务端回发
+  "UDP_PONG\n"，Hev 解包后输出 IPv4 UDP 帧，夹具校验源/目的及载荷；
+- 执行 `bash build/folo_build_hev_host_runtime.sh`，输出为：
+  `hev_host_runtime=pass start=running stop=idle owner=dup icmp=pass tcp=pass udp=pass`。
+
+此为 host 端原生 PacketFlow 闭环证据，不改变当前静态库哈希；真机
+`NEPacketTunnelFlow`、网络切换、长稳及分发签名仍受物理设备与证书门禁约束，
+继续保持阶段 22/23 的 BLOCKED 记录。
