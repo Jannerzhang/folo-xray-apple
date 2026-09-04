@@ -3,11 +3,11 @@ go:
   version: go1.26.4
   toolchainMode: local
 xcode:
-  version: 26.4
-  build: 17E192
+  version: 26.6
+  build: 17F113
 sdk:
   name: iphoneos
-  version: 26.4
+  version: 26.5
 deploymentTarget: "17.0"
 targets:
   - name: ios-arm64
