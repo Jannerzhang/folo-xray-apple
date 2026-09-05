@@ -1,2 +1,9 @@
 [build]
 rustflags = ["-Dwarnings"]
+
+[target.aarch64-apple-ios]
+rustflags = ["-C", "target-feature=+aes,+sha2", "-C", "link-arg=-miphoneos-version-min=17.0"]
+
+[target.aarch64-apple-ios-sim]
+rustflags = ["-C", "target-feature=+aes,+sha2", "-C", "link-arg=-mios-simulator-version-min=17.0"]
+
