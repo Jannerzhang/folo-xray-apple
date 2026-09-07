@@ -33,6 +33,7 @@ packages = sbom.fetch("packages")
 fail!("empty SBOM") if packages.empty?
 
 scope = audit.fetch("scope")
+mobile_sdk = audit.fetch("mobileSdk")
 release_gate = audit.fetch("releaseGate")
 if release_gate.fetch("releaseReady") || release_gate.fetch("appIntegrationAllowed")
   fail!("release gate must be closed until a real Rust artifact is verified")
@@ -50,12 +51,15 @@ current_source_tree = run!("git", "rev-parse", "HEAD:xray-rust-eval").strip
 if current_source_tree != source_tree
   fail!("xray-rust-eval changed after SBOM generation; regenerate the SBOM")
 end
+fail!("source commit differs from audit") unless scope.fetch("sourceCommit") == source_commit
+fail!("source tree differs from audit") unless scope.fetch("sourceTree") == source_tree
 
 metadata_json = run!(
   "cargo", "metadata", "--manifest-path", "xray-rust-eval/Cargo.toml",
   "--locked", "--format-version", "1"
 )
 metadata = JSON.parse(metadata_json)
+canonical_metadata_json = metadata_json.gsub(ROOT, "<repo>")
 metadata_packages = metadata.fetch("packages").map do |package|
   {
     "name" => package.fetch("name"),
@@ -67,7 +71,7 @@ metadata_packages = metadata.fetch("packages").map do |package|
 end.sort_by { |package| [package.fetch("name"), package.fetch("version"), package["source"].to_s] }
 
 fail!("SBOM package list differs from cargo metadata") unless packages == metadata_packages
-metadata_sha = Digest::SHA256.hexdigest(metadata_json)
+metadata_sha = Digest::SHA256.hexdigest(canonical_metadata_json)
 fail!("metadata hash differs from SBOM") unless sbom.fetch("metadataSha256") == metadata_sha
 fail!("workspace package count differs from audit") unless scope.fetch("rustWorkspacePackages") == metadata_packages.length
 fail!("workspace package count differs from SBOM") unless packages.length == metadata_packages.length
@@ -78,11 +82,32 @@ graph = run!(
 )
 fail!("graph contains webpki-roots") if graph.match?(/webpki-roots/)
 fail!("graph contains zlib-rs") if graph.match?(/zlib-rs/)
-graph_sha = Digest::SHA256.hexdigest(graph)
+canonical_graph = graph.gsub(ROOT, "<repo>")
+graph_sha = Digest::SHA256.hexdigest(canonical_graph)
 fail!("graph hash differs from audit") unless scope.fetch("graphSha256") == graph_sha
 fail!("metadata hash differs from audit") unless scope.fetch("metadataSha256") == metadata_sha
 sbom_sha = Digest::SHA256.file(SBOM).hexdigest
 fail!("SBOM hash differs from audit") unless scope.fetch("sbomSha256") == sbom_sha
+
+graph_packages_output = run!(
+  "cargo", "tree", "--manifest-path", "xray-rust-eval/Cargo.toml", "--locked",
+  "--package", "xray-ffi", "--target", "aarch64-apple-ios", "--edges", "normal",
+  "--format", "{p}", "--prefix", "none"
+)
+graph_packages = graph_packages_output.lines.map do |line|
+  line.strip.sub(/ \(\*\)\z/, "").sub(/ \(proc-macro\)\z/, "")
+end
+graph_packages.reject!(&:empty?)
+fail!("iOS graph package count differs from audit") unless scope.fetch("iosArm64RuntimePackages") == graph_packages.uniq.length
+
+if mobile_sdk.fetch("artifactPresent", false)
+  artifact_path = mobile_sdk.fetch("artifactPath")
+  fail!("declared artifact is missing") unless File.file?(artifact_path)
+  artifact_sha = Digest::SHA256.file(artifact_path).hexdigest
+  fail!("artifact hash differs from audit") unless artifact_sha == mobile_sdk.fetch("artifactSha256")
+elsif mobile_sdk.fetch("decision") == "APPROVED"
+  fail!("artifact cannot be approved while no artifact is present")
+end
 
 denied = packages.select do |package|
   package.fetch("license").match?(/\A(?:GPL|AGPL|LGPL|SSPL|BUSL|Elastic|Commons-Clause|NOASSERTION|CDLA)/i)

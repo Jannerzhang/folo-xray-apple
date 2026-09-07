@@ -1,18 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 schemaVersion: 1
-status: PASS
+status: BLOCKED_ARTIFACT
 auditDate: 2026-09-07
 policy: ../ios/LICENSE_POLICY.md
 sourceLock: xray-rust-eval-source-lock.yml
 sbom: xray-rust-dependency-sbom-v1.json
 
 scope:
-  rustWorkspacePackages: 288
-  iosArm64RuntimePackages: 191
+  rustWorkspacePackages: 294
+  iosArm64RuntimePackages: 199
   graphCommand: "cargo tree --manifest-path xray-rust-eval/Cargo.toml --locked --package xray-ffi --target aarch64-apple-ios --edges normal"
-  graphSha256: 00d982747a7337dff28ca0a1d8ca1a1a5acf02e9df3e2ffd1b09a8def7cbb410
+  graphSha256: c08fdaa0a3f8598fe02412e20aac494c12db0b25e4a67d515250f217571d3235
   metadataCommand: "cargo metadata --manifest-path xray-rust-eval/Cargo.toml --locked --format-version 1"
-  sbomSha256: 8d5d882b13e8beb79141fcc8886d8ceaa9e635a30fe2e7e8bd31a3a8cde88212
+  metadataSha256: f52758dab4f37ed7ad773bed2a0c2680ea6be7d9d7044ac2b8bb7da099952b98
+  sbomSha256: e321f88a3513f1821287e776b861112d4b51f363c5ef708bcfa96b7d9403c250
+  sourceCommit: 0f7debf86889570ddf63170ca8f5c30a3853d80c
+  sourceTree: 31f22cc65c2c8fb4abd2914ce461d9152999fdc1
 
 approved:
   - "MIT/BSD-2-Clause/BSD-3-Clause/ISC/Apache-2.0"
@@ -25,16 +28,23 @@ findings:
     version: 1.0.9
     spdx: CDLA-Permissive-2.0
     path: "iOS arm64 normal runtime via xray-transport -> tokio-rustls"
-    decision: RESOLVED
-    reason: "Replaced with policy-approved trust-root provider (rustls-native-certs / Apache-2.0/ISC/MIT) complying with product license policy."
-    remediation: "Eliminated CDLA-Permissive-2.0 blocker."
+    decision: ELIMINATED
+    reason: "The package is absent from the generated Cargo metadata and iOS normal graph."
+    remediation: "No CDLA-Permissive-2.0 package may re-enter the iOS graph without a new audit."
   - component: zlib-rs
     version: 0.6.7
     spdx: Zlib
     path: "iOS arm64 normal runtime via rustls zlib feature"
-    decision: RESOLVED
-    reason: "Pruned zlib feature from iOS arm64 normal runtime dependency graph."
-    remediation: "Eliminated Zlib blocker."
+    decision: ELIMINATED
+    reason: "The rustls zlib feature is disabled and the package is absent from the generated Cargo graph."
+    remediation: "Do not enable the zlib feature in the mobile dependency profile."
+  - component: rustls-native-certs
+    version: 0.8.4
+    spdx: "Apache-2.0 OR ISC OR MIT"
+    path: "iOS arm64 normal runtime trust store via xray-transport"
+    decision: APPROVED
+    reason: "The generated package metadata retains only the policy-approved permissive expression."
+    remediation: "Load platform roots once and fail closed on partial or empty stores."
   - component: r-efi
     versions: [5.3.0, 6.0.0]
     spdx: "MIT OR Apache-2.0 OR LGPL-2.1-or-later"
@@ -58,11 +68,12 @@ mobileSdk:
   binaryName: XrayRust.xcframework.zip
   artifactSha256: 4d2d72fbbb44ebcde2d1fa129ff87e2b055933597656b35cb096bcdeef7ed84c
   noticeSha256: d1d06a0403ec52674a95801204f99ca3f4e4fbdf401b5c79da2f4fc9f8dae467
-  decision: APPROVED
-  reason: "License audit passed; blockers eliminated."
+  decision: REVIEW_REQUIRED
+  artifactPresent: false
+  reason: "Dependency graph is verified, but no locally verified Rust XCFramework artifact is present."
 
 releaseGate:
-  releaseReady: true
-  appIntegrationAllowed: true
+  releaseReady: false
+  appIntegrationAllowed: false
   sourcePublicationRequired: true
-  humanLicenseReviewRequired: false
+  humanLicenseReviewRequired: true
