@@ -50,12 +50,17 @@ func (m *IPMatcher) Match(ip net.IP) (RouteAction, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	var best RouteAction
+	matched := false
 	for _, r := range m.rules {
 		if r.ipNet.Contains(ip) {
-			return r.action, true
+			if !matched || routeActionPriority(r.action) > routeActionPriority(best) {
+				best = r.action
+				matched = true
+			}
 		}
 	}
-	return ActionProxy, false
+	return best, matched
 }
 
 // IsPrivateIP checks if an IP is in RFC1918, loopback, link-local, or private ranges.

@@ -14,6 +14,17 @@ pub enum DomainProvenance {
     None,
 }
 
+impl DomainProvenance {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Explicit => "explicit",
+            Self::DnsMapping => "dns_mapping",
+            Self::Sniffed => "sniffed_domain",
+            Self::None => "none",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RouteAction {
     Direct,

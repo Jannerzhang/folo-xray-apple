@@ -18,11 +18,11 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 	"github.com/xtls/xray-core/core"
 	featureStats "github.com/xtls/xray-core/features/stats"
 	_ "github.com/xtls/xray-core/main/distro/folo"
 	"github.com/xtls/xray-core/main/folotun"
-	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
 
 func init() {
@@ -120,6 +120,22 @@ func copyConfig(configBytes *C.uint8_t, configLength C.size_t) ([]byte, int32) {
 func loadConfig(configBytes []byte) error {
 	_, err := core.LoadConfig("json", bytes.NewReader(configBytes))
 	return err
+}
+
+func parseRouterConfig(configBytes []byte) (router.Config, error) {
+	parsed := struct {
+		Routing *router.Config `json:"routing"`
+	}{}
+	if err := json.Unmarshal(configBytes, &parsed); err != nil {
+		return router.Config{}, err
+	}
+	if parsed.Routing == nil {
+		return router.Config{SchemaVersion: 1, Revision: 1, Mode: router.ModeRule}, nil
+	}
+	if err := parsed.Routing.Validate(); err != nil {
+		return router.Config{}, err
+	}
+	return *parsed.Routing, nil
 }
 
 //export FoloXrayPacketBridgeStart
@@ -259,7 +275,10 @@ func FoloXrayNetstackStart() C.int32_t {
 	if engine.instance == nil || engine.state != stateRunning {
 		return C.int32_t(setErrorLocked(statusInvalidState, "engine is not running"))
 	}
-	r := router.NewRouter(engine.routerConfig)
+	r, err := router.NewValidatedRouter(engine.routerConfig)
+	if err != nil {
+		return C.int32_t(setErrorLocked(statusInvalidConfiguration, "routing policy rejected"))
+	}
 	if err := startNetstack(engine.instance, r); err != nil {
 		return C.int32_t(setErrorLocked(statusStartFailed, "netstack start failed"))
 	}
@@ -303,7 +322,6 @@ func FoloXrayNetstackCopyDiagnosticsJSON() *C.char {
 	return C.CString(getNetstackDiagnosticsJSON())
 }
 
-
 //export FoloXrayValidateConfigJSON
 func FoloXrayValidateConfigJSON(configBytes *C.uint8_t, configLength C.size_t) C.int32_t {
 	engine.Lock()
@@ -312,6 +330,9 @@ func FoloXrayValidateConfigJSON(configBytes *C.uint8_t, configLength C.size_t) C
 	config, code := copyConfig(configBytes, configLength)
 	if code != statusOK {
 		return C.int32_t(setErrorLocked(code, "configuration bytes are empty or too large"))
+	}
+	if _, err := parseRouterConfig(config); err != nil {
+		return C.int32_t(setErrorLocked(statusInvalidConfiguration, "routing policy rejected"))
 	}
 	if err := loadConfig(config); err != nil {
 		return C.int32_t(setErrorLocked(statusInvalidConfiguration, "configuration rejected"))
@@ -332,6 +353,10 @@ func FoloXrayStartJSON(configBytes *C.uint8_t, configLength C.size_t) C.int32_t 
 	if code != statusOK {
 		return C.int32_t(setErrorLocked(code, "configuration bytes are empty or too large"))
 	}
+	routerConfig, err := parseRouterConfig(config)
+	if err != nil {
+		return C.int32_t(setErrorLocked(statusInvalidConfiguration, "routing policy rejected"))
+	}
 	parsed, err := core.LoadConfig("json", bytes.NewReader(config))
 	if err != nil {
 		return C.int32_t(setErrorLocked(statusInvalidConfiguration, "configuration rejected"))
@@ -345,15 +370,7 @@ func FoloXrayStartJSON(configBytes *C.uint8_t, configLength C.size_t) C.int32_t 
 		return C.int32_t(setErrorLocked(statusStartFailed, "engine start failed"))
 	}
 
-	var parsedRouting struct {
-		Routing *router.Config `json:"routing"`
-	}
-	_ = json.Unmarshal(config, &parsedRouting)
-	if parsedRouting.Routing != nil {
-		engine.routerConfig = *parsedRouting.Routing
-	} else {
-		engine.routerConfig = router.Config{Mode: router.ModeRule}
-	}
+	engine.routerConfig = routerConfig
 
 	engine.instance = instance
 	engine.state = stateRunning
