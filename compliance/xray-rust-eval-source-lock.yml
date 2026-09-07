@@ -43,7 +43,7 @@ mobile:
 
 crossRepository:
   iosCommit: 13de7df48decd0b114abc7bfdd37a5c1390b4d54
-  coreCommit: 73926d23ec04ac08644b35b06b0e092ed2dd6a58
+  coreCommit: ea8f3c2c33c33f34823d81efa828f4a83c73b877
   note: "The lock records the final verified audit-fix-07 pair; the Rust source identity remains the upstream snapshot plus explicit evaluation commits."
 
 reviewFindings:
