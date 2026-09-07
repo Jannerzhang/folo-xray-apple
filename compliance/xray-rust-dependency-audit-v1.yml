@@ -2,7 +2,8 @@
 schemaVersion: 1
 status: BLOCKED_ARTIFACT
 auditDate: 2026-09-07
-policy: ../ios/LICENSE_POLICY.md
+policy: FOLO_LICENSE_POLICY_REFERENCE.md
+policySha256: f1eed2759670c88ea089cc4e653617fe7bc69fa6633cf416579060d59515b2a0
 sourceLock: xray-rust-eval-source-lock.yml
 sbom: xray-rust-dependency-sbom-v1.json
 
@@ -13,9 +14,9 @@ scope:
   graphSha256: c08fdaa0a3f8598fe02412e20aac494c12db0b25e4a67d515250f217571d3235
   metadataCommand: "cargo metadata --manifest-path xray-rust-eval/Cargo.toml --locked --format-version 1"
   metadataSha256: f52758dab4f37ed7ad773bed2a0c2680ea6be7d9d7044ac2b8bb7da099952b98
-  sbomSha256: cf820f05958cbe92639a8f34671e7b68208d0e08c2f4112e7d9125fb1e2333fc
-  sourceCommit: 31a73412c509c2a37afa55c74e4c96d7ba80efd4
-  sourceTree: b6cf259c110785c24fd6efa5bdf4e44f136a37b4
+  sbomSha256: 00f36107b8585eb39555d00a0ba6ed5f934d10c4abfc80c47b377ac361be58ad
+  sourceCommit: 1f350583eb947dc5450ec5721c57f8d7d3e67c86
+  sourceTree: 7e14709562e7898fc4ce5e9694242c6d7452786c
 
 approved:
   - "MIT/BSD-2-Clause/BSD-3-Clause/ISC/Apache-2.0"
