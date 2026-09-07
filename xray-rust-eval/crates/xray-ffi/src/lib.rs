@@ -2350,7 +2350,7 @@ unsafe fn xray_tun_push_packets_inner(
     let core = unsafe { loaded_core(handle, error)? };
     let mtu = core.tun().mtu();
 
-    let mut accepted = 0usize;
+    let mut batch = Vec::with_capacity(count);
     for i in 0..count {
         let pkt_ptr = unsafe { *packets.add(i) };
         let pkt_len = unsafe { *lengths.add(i) };
@@ -2382,21 +2382,27 @@ unsafe fn xray_tun_push_packets_inner(
             let data = unsafe { slice::from_raw_parts(pkt_ptr, pkt_len) };
             Bytes::copy_from_slice(data)
         };
+        batch.push(packet);
+    }
 
-        match handle.runtime.block_on(core.tun().push_inbound(packet)) {
-            Ok(()) => {
-                accepted += 1;
-                unsafe {
-                    *pushed_count = accepted;
-                }
-            }
-            Err(err) => {
-                unsafe {
-                    set_error(error, XrayStatus::TunError, err.to_string());
-                }
-                return Err(XrayStatus::TunError);
-            }
+    let mut accepted = 0usize;
+    let push_res = handle.runtime.block_on(async {
+        for packet in batch {
+            core.tun().push_inbound(packet).await?;
+            accepted += 1;
         }
+        Ok::<(), xray_tun::TunError>(())
+    });
+
+    unsafe {
+        *pushed_count = accepted;
+    }
+
+    if let Err(err) = push_res {
+        unsafe {
+            set_error(error, XrayStatus::TunError, err.to_string());
+        }
+        return Err(XrayStatus::TunError);
     }
 
     Ok(XrayStatus::Ok)

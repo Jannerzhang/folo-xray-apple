@@ -79,6 +79,8 @@ const TCP_BRIDGE_WRITE_BATCH_MAX_BYTES: usize = 2 * 1024 * 1024;
 const MOBILE_TCP_BRIDGE_WRITE_BATCH_MAX_BYTES: usize = 1024 * 1024;
 const LOW_MEMORY_TCP_BRIDGE_WRITE_BATCH_MAX_BYTES: usize = 256 * 1024;
 const MAX_TUN_INBOUND_DRAIN_PER_TICK: usize = 256;
+const MAX_TUN_INBOUND_BYTES_PER_TICK: usize = 256 * 1024;
+const MAX_TUN_TICK_TIME_QUANTUM: Duration = Duration::from_millis(5);
 const MAX_BRIDGE_TASK_COMPLETIONS_PER_TICK: usize = 64;
 const MAX_UDP_TASK_COMPLETIONS_PER_TICK: usize = MAX_TUN_INBOUND_DRAIN_PER_TICK + 1;
 const MAX_DNS_UDP_TASKS: usize = 64;
@@ -579,6 +581,8 @@ struct FlowBudgetState {
     policy: FlowBudgetPolicy,
     tcp_remote: TcpRemoteBufferState,
     tcp_upload: Arc<TcpUploadBufferState>,
+    pending_remote_by_destination: HashMap<Target, usize>,
+    destination_targets: HashMap<SocketHandle, Target>,
     udp_sequence: u64,
     udp_budget_drops: u64,
     udp_evicted_flows: u64,
@@ -707,6 +711,8 @@ impl FlowBudgetState {
             policy,
             tcp_remote: TcpRemoteBufferState::new(policy.tcp_remote),
             tcp_upload: Arc::new(TcpUploadBufferState::default()),
+            pending_remote_by_destination: HashMap::new(),
+            destination_targets: HashMap::new(),
             udp_sequence: 0,
             udp_budget_drops: 0,
             udp_evicted_flows: 0,
@@ -714,7 +720,20 @@ impl FlowBudgetState {
         }
     }
 
-    fn can_enqueue_remote_data(&mut self, flow_pending_bytes: usize, data_len: usize) -> bool {
+    fn per_destination_limit(&self) -> usize {
+        match self.tcp_remote.pressure_tier() {
+            MemoryPressureTier::Normal => self.per_flow_limit().saturating_mul(4),
+            MemoryPressureTier::Pressure => self.per_flow_limit().saturating_mul(2),
+            MemoryPressureTier::Critical => self.per_flow_limit(),
+        }
+    }
+
+    fn can_enqueue_remote_data_for_handle(
+        &mut self,
+        handle: Option<SocketHandle>,
+        flow_pending_bytes: usize,
+        data_len: usize,
+    ) -> bool {
         self.refresh_tcp_pressure_state();
         if self.pending_tcp_buffer_bytes().saturating_add(data_len)
             > self.policy.tcp_remote.hard_total_bytes
@@ -722,25 +741,112 @@ impl FlowBudgetState {
             return false;
         }
 
-        flow_pending_bytes.saturating_add(data_len) <= self.per_flow_limit()
+        if flow_pending_bytes.saturating_add(data_len) > self.per_flow_limit() {
+            return false;
+        }
+
+        if let Some(h) = handle {
+            if let Some(target) = self.destination_targets.get(&h) {
+                let dest_pending = self
+                    .pending_remote_by_destination
+                    .get(target)
+                    .copied()
+                    .unwrap_or(0);
+                if dest_pending.saturating_add(data_len) > self.per_destination_limit() {
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
-    fn record_pending_remote_enqueue(&mut self, flow_pending_bytes: usize, data_len: usize) {
+    #[cfg(test)]
+    fn can_enqueue_remote_data(&mut self, flow_pending_bytes: usize, data_len: usize) -> bool {
+        self.can_enqueue_remote_data_for_handle(None, flow_pending_bytes, data_len)
+    }
+
+    fn record_pending_remote_enqueue_for_handle(
+        &mut self,
+        handle: Option<SocketHandle>,
+        flow_pending_bytes: usize,
+        data_len: usize,
+    ) {
         self.tcp_remote
             .record_pending_remote_enqueue(flow_pending_bytes, data_len);
+        if let Some(h) = handle {
+            if let Some(target) = self.destination_targets.get(&h) {
+                let entry = self
+                    .pending_remote_by_destination
+                    .entry(target.clone())
+                    .or_insert(0);
+                *entry = entry.saturating_add(data_len);
+            }
+        }
         self.refresh_tcp_pressure_state();
     }
 
-    fn record_pending_remote_dequeue(&mut self, flow_pending_bytes: usize, data_len: usize) {
+    #[cfg(test)]
+    fn record_pending_remote_enqueue(&mut self, flow_pending_bytes: usize, data_len: usize) {
+        self.record_pending_remote_enqueue_for_handle(None, flow_pending_bytes, data_len);
+    }
+
+    fn record_pending_remote_dequeue_for_handle(
+        &mut self,
+        handle: Option<SocketHandle>,
+        flow_pending_bytes: usize,
+        data_len: usize,
+    ) {
         self.tcp_remote
             .record_pending_remote_dequeue(flow_pending_bytes, data_len);
+        if let Some(h) = handle {
+            if let Some(target) = self.destination_targets.get(&h) {
+                if let Some(entry) = self.pending_remote_by_destination.get_mut(target) {
+                    *entry = entry.saturating_sub(data_len);
+                    if *entry == 0 {
+                        let target_clone = target.clone();
+                        self.pending_remote_by_destination.remove(&target_clone);
+                    }
+                }
+            }
+        }
         self.refresh_tcp_pressure_state();
     }
 
-    fn record_pending_remote_remove_flow(&mut self, flow_pending_bytes: usize) {
+    #[cfg(test)]
+    #[allow(dead_code)]
+    fn record_pending_remote_dequeue(&mut self, flow_pending_bytes: usize, data_len: usize) {
+        self.record_pending_remote_dequeue_for_handle(None, flow_pending_bytes, data_len);
+    }
+
+    fn record_pending_remote_remove_flow_for_handle(
+        &mut self,
+        handle: Option<SocketHandle>,
+        flow_pending_bytes: usize,
+    ) {
         self.tcp_remote
             .record_pending_remote_remove_flow(flow_pending_bytes);
+        if let Some(h) = handle {
+            if let Some(target) = self.destination_targets.remove(&h) {
+                if let Some(entry) = self.pending_remote_by_destination.get_mut(&target) {
+                    *entry = entry.saturating_sub(flow_pending_bytes);
+                    if *entry == 0 {
+                        self.pending_remote_by_destination.remove(&target);
+                    }
+                }
+            }
+        }
         self.refresh_tcp_pressure_state();
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    fn record_pending_remote_remove_flow(&mut self, flow_pending_bytes: usize) {
+        self.record_pending_remote_remove_flow_for_handle(None, flow_pending_bytes);
+    }
+
+    fn register_flow_destination(&mut self, handle: SocketHandle, target: Target) {
+        self.destination_targets.insert(handle, target);
     }
 
     #[cfg(test)]
@@ -941,6 +1047,8 @@ pub(crate) async fn serve_tun_endpoint(
     let mut bridge_tasks = JoinSet::new();
     let mut udp_tasks = JoinSet::new();
     let runtime_policy = tun_runtime_policy_for_options(tun_runtime_options);
+    let tcp_active_flow_permits =
+        Arc::new(Semaphore::new(runtime_policy.flows.tcp.max_active_flows));
     let tcp_pending_open_permits =
         Arc::new(Semaphore::new(runtime_policy.flows.tcp.max_pending_opens));
     let dns_tcp_flow_permits = Arc::new(Semaphore::new(dns_tcp_flow_limit(
@@ -979,6 +1087,7 @@ pub(crate) async fn serve_tun_endpoint(
         tun: Arc::clone(&tun),
         tun_runtime_options,
         runtime_policy,
+        tcp_active_flow_permits,
         tcp_pending_open_permits,
         dns_tcp_flow_permits,
         dns_tcp_connection_pool,
@@ -1079,9 +1188,17 @@ pub(crate) async fn serve_tun_endpoint(
             MAX_UDP_TASK_COMPLETIONS_PER_TICK,
         );
 
+        let drain_start = StdInstant::now();
+        let mut drained_bytes = 0usize;
         for _ in 0..MAX_TUN_INBOUND_DRAIN_PER_TICK {
+            if drained_bytes >= MAX_TUN_INBOUND_BYTES_PER_TICK
+                || drain_start.elapsed() >= MAX_TUN_TICK_TIME_QUANTUM
+            {
+                break;
+            }
             match tun.try_poll_inbound().await {
                 Ok(Some(packet)) => {
+                    drained_bytes = drained_bytes.saturating_add(packet.len());
                     match process_tun_packet(
                         packet,
                         &tun,
@@ -1286,6 +1403,7 @@ fn drive_tun_tcp_stack(
         sockets,
         tcp_listeners,
         tcp_flows,
+        flow_budget_state,
         context,
         shutdown,
         bridge_tasks,
@@ -1463,6 +1581,7 @@ async fn process_tun_packet(
             sockets,
             tcp_listeners,
             tcp_flows,
+            flow_budget_state,
             context,
             shutdown,
             bridge_tasks,
@@ -1521,6 +1640,7 @@ struct TunRuntimeContext {
     tun: Arc<TunEndpoint>,
     tun_runtime_options: TunRuntimeOptions,
     runtime_policy: TunRuntimePolicy,
+    tcp_active_flow_permits: Arc<Semaphore>,
     tcp_pending_open_permits: Arc<Semaphore>,
     dns_tcp_flow_permits: Arc<Semaphore>,
     dns_tcp_connection_pool: Arc<dns_proxy::DnsTcpConnectionPool>,
@@ -1602,7 +1722,6 @@ impl TunRuntimeContext {
     }
 }
 
-#[derive(Debug)]
 struct TcpFlow {
     generation: u64,
     to_remote: mpsc::Sender<StackToRemoteData>,
@@ -1612,6 +1731,21 @@ struct TcpFlow {
     pending_remote_bytes: usize,
     remote_closed: bool,
     remote_aborted: bool,
+    _active_flow: Option<OwnedSemaphorePermit>,
+    destination_target: Option<Target>,
+}
+
+impl std::fmt::Debug for TcpFlow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TcpFlow")
+            .field("generation", &self.generation)
+            .field("remote_open", &self.remote_open)
+            .field("pending_remote_bytes", &self.pending_remote_bytes)
+            .field("remote_closed", &self.remote_closed)
+            .field("remote_aborted", &self.remote_aborted)
+            .field("destination_target", &self.destination_target)
+            .finish()
+    }
 }
 
 impl Drop for TcpFlow {
@@ -1650,10 +1784,12 @@ enum AdmittedTcpFlow {
     Bridge {
         destination: TcpBridgeDestination,
         permits: TcpBridgePermits,
+        active_flow: OwnedSemaphorePermit,
     },
     FakeDns {
         mapper: Arc<Mutex<FakeIpMapper>>,
         permit: OwnedSemaphorePermit,
+        active_flow: OwnedSemaphorePermit,
     },
 }
 
@@ -1862,6 +1998,7 @@ fn open_ready_tcp_flows(
     sockets: &mut SocketSet<'static>,
     listeners: &mut HashMap<IpEndpoint, TcpListenerState>,
     flows: &mut HashMap<SocketHandle, TcpFlow>,
+    flow_budget_state: &mut FlowBudgetState,
     context: &TunRuntimeContext,
     shutdown: watch::Receiver<bool>,
     bridge_tasks: &mut JoinSet<()>,
@@ -1933,6 +2070,19 @@ fn open_ready_tcp_flows(
         let generation = context.tcp_flow_generation.fetch_add(1, Ordering::Relaxed);
         let admitted = match ready {
             ReadyTcpFlow::Bridge(destination) => {
+                let active_flow_permit =
+                    match Arc::clone(&context.tcp_active_flow_permits).try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            record_tcp_admission_rejection(
+                                context,
+                                endpoint,
+                                "TUN TCP active flow limit reached",
+                            );
+                            insert_aborted_tcp_flow(handle, generation, flows);
+                            continue;
+                        }
+                    };
                 let dns_flow_permit = if destination.is_dns_proxy() {
                     match Arc::clone(&context.dns_tcp_flow_permits).try_acquire_owned() {
                         Ok(permit) => Some(permit),
@@ -1968,9 +2118,23 @@ fn open_ready_tcp_flows(
                         pending_open: pending_open_permit,
                         dns_flow: dns_flow_permit,
                     },
+                    active_flow: active_flow_permit,
                 }
             }
             ReadyTcpFlow::FakeDns(mapper) => {
+                let active_flow_permit =
+                    match Arc::clone(&context.tcp_active_flow_permits).try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            record_tcp_admission_rejection(
+                                context,
+                                endpoint,
+                                "TUN TCP active flow limit reached",
+                            );
+                            insert_aborted_tcp_flow(handle, generation, flows);
+                            continue;
+                        }
+                    };
                 let permit = match Arc::clone(&context.dns_tcp_flow_permits).try_acquire_owned() {
                     Ok(permit) => permit,
                     Err(_) => {
@@ -1983,7 +2147,11 @@ fn open_ready_tcp_flows(
                         continue;
                     }
                 };
-                AdmittedTcpFlow::FakeDns { mapper, permit }
+                AdmittedTcpFlow::FakeDns {
+                    mapper,
+                    permit,
+                    active_flow: active_flow_permit,
+                }
             }
             ReadyTcpFlow::Reject(reason) => {
                 record_tcp_endpoint_rejection(context, endpoint, reason);
@@ -1997,78 +2165,75 @@ fn open_ready_tcp_flows(
         };
         let (to_remote, from_stack) =
             mpsc::channel(context.runtime_policy.tcp_upload.channel_depth);
-        flows.insert(
-            handle,
-            TcpFlow {
-                generation,
-                to_remote,
-                task: None,
-                remote_open: false,
-                pending_remote: VecDeque::new(),
-                pending_remote_bytes: 0,
-                remote_closed: false,
-                remote_aborted: false,
-            },
-        );
-        let task = match admitted {
+        let (active_flow_permit, destination_target, task) = match admitted {
             AdmittedTcpFlow::Bridge {
                 destination,
                 permits,
-            } => match destination {
-                TcpBridgeDestination::DnsProxy {
-                    client_target,
-                    plan,
-                } => {
-                    let TcpBridgePermits {
-                        pending_open,
-                        dns_flow,
-                    } = permits;
-                    bridge_tasks.spawn(dns_proxy::bridge_raw_dns_tcp_flow(
-                        handle,
-                        generation,
+                active_flow,
+            } => {
+                let target = destination.client_target().clone();
+                let task = match destination {
+                    TcpBridgeDestination::DnsProxy {
                         client_target,
                         plan,
-                        context.clone(),
-                        from_stack,
-                        shutdown.clone(),
-                        pending_open,
-                        dns_flow,
-                    ))
-                }
-                TcpBridgeDestination::DnsOutbound {
-                    client_target,
-                    outbound,
-                } => {
-                    let TcpBridgePermits {
-                        pending_open,
-                        dns_flow,
-                    } = permits;
-                    bridge_tasks.spawn(dns_proxy::bridge_dns_outbound_tcp_flow(
-                        handle,
-                        generation,
+                    } => {
+                        let TcpBridgePermits {
+                            pending_open,
+                            dns_flow,
+                        } = permits;
+                        bridge_tasks.spawn(dns_proxy::bridge_raw_dns_tcp_flow(
+                            handle,
+                            generation,
+                            client_target,
+                            plan,
+                            context.clone(),
+                            from_stack,
+                            shutdown.clone(),
+                            pending_open,
+                            dns_flow,
+                        ))
+                    }
+                    TcpBridgeDestination::DnsOutbound {
                         client_target,
                         outbound,
+                    } => {
+                        let TcpBridgePermits {
+                            pending_open,
+                            dns_flow,
+                        } = permits;
+                        bridge_tasks.spawn(dns_proxy::bridge_dns_outbound_tcp_flow(
+                            handle,
+                            generation,
+                            client_target,
+                            outbound,
+                            context.clone(),
+                            from_stack,
+                            shutdown.clone(),
+                            Some(pending_open),
+                            dns_flow,
+                            false,
+                            VecDeque::new(),
+                        ))
+                    }
+                    destination => bridge_tasks.spawn(bridge_tcp_flow(
+                        handle,
+                        generation,
+                        destination,
                         context.clone(),
                         from_stack,
                         shutdown.clone(),
-                        Some(pending_open),
-                        dns_flow,
-                        false,
-                        VecDeque::new(),
-                    ))
-                }
-                destination => bridge_tasks.spawn(bridge_tcp_flow(
-                    handle,
-                    generation,
-                    destination,
-                    context.clone(),
-                    from_stack,
-                    shutdown.clone(),
-                    permits,
-                )),
-            },
-            AdmittedTcpFlow::FakeDns { mapper, permit } => {
-                bridge_tasks.spawn(dns_proxy::bridge_fake_ip_tcp_flow(
+                        permits,
+                    )),
+                };
+                (active_flow, Some(target), task)
+            }
+            AdmittedTcpFlow::FakeDns {
+                mapper,
+                permit,
+                active_flow,
+            } => {
+                let target = target_from_endpoint_with_network(endpoint, RoutingNetwork::Tcp);
+                let task = bridge_tasks.spawn(dns_proxy::bridge_fake_ip_tcp_flow(
                     handle,
                     generation,
                     mapper,
@@ -2076,14 +2241,28 @@ fn open_ready_tcp_flows(
                     from_stack,
                     shutdown.clone(),
                     permit,
-                ))
+                ));
+                (active_flow, target, task)
             }
         };
-        if let Some(flow) = flows.get_mut(&handle) {
-            flow.task = Some(task);
-        } else {
-            task.abort();
+        if let Some(ref target) = destination_target {
+            flow_budget_state.register_flow_destination(handle, target.clone());
         }
+        flows.insert(
+            handle,
+            TcpFlow {
+                generation,
+                to_remote,
+                task: Some(task),
+                remote_open: false,
+                pending_remote: VecDeque::new(),
+                pending_remote_bytes: 0,
+                remote_closed: false,
+                remote_aborted: false,
+                _active_flow: Some(active_flow_permit),
+                destination_target,
+            },
+        );
     }
 }
 
@@ -2105,6 +2284,8 @@ fn insert_aborted_tcp_flow(
             pending_remote_bytes: 0,
             remote_closed: false,
             remote_aborted: true,
+            _active_flow: None,
+            destination_target: None,
         },
     );
 }
@@ -2312,7 +2493,11 @@ fn try_apply_stack_event(
             else {
                 return Ok(());
             };
-            if !flow_budget_state.can_enqueue_remote_data(flow.pending_remote_bytes, data.len()) {
+            if !flow_budget_state.can_enqueue_remote_data_for_handle(
+                Some(handle),
+                flow.pending_remote_bytes,
+                data.len(),
+            ) {
                 return Err(StackEvent::RemoteData {
                     handle,
                     generation,
@@ -2322,7 +2507,11 @@ fn try_apply_stack_event(
             let pending_before = flow.pending_remote_bytes;
             let next_pending_bytes = pending_before.saturating_add(data.len());
             flow.pending_remote_bytes = next_pending_bytes;
-            flow_budget_state.record_pending_remote_enqueue(pending_before, data.len());
+            flow_budget_state.record_pending_remote_enqueue_for_handle(
+                Some(handle),
+                pending_before,
+                data.len(),
+            );
             flow.pending_remote.push_back(data);
         }
         StackEvent::RemoteClosed { handle, generation } => {
@@ -2479,12 +2668,20 @@ fn write_remote_data_to_sockets(
             let pending_before = flow.pending_remote_bytes;
             if written == front.len() {
                 flow.pending_remote_bytes = flow.pending_remote_bytes.saturating_sub(front.len());
-                flow_budget_state.record_pending_remote_dequeue(pending_before, front.len());
+                flow_budget_state.record_pending_remote_dequeue_for_handle(
+                    Some(*handle),
+                    pending_before,
+                    front.len(),
+                );
                 flow.pending_remote.pop_front();
             } else {
                 *front = front.slice(written..);
                 flow.pending_remote_bytes = flow.pending_remote_bytes.saturating_sub(written);
-                flow_budget_state.record_pending_remote_dequeue(pending_before, written);
+                flow_budget_state.record_pending_remote_dequeue_for_handle(
+                    Some(*handle),
+                    pending_before,
+                    written,
+                );
                 break;
             }
         }
@@ -2565,7 +2762,8 @@ fn cleanup_closed_tcp_flows(
 
     for handle in closed {
         if let Some(flow) = flows.remove(&handle) {
-            flow_budget_state.record_pending_remote_remove_flow(flow.pending_remote_bytes);
+            flow_budget_state
+                .record_pending_remote_remove_flow_for_handle(Some(handle), flow.pending_remote_bytes);
         }
         sockets.remove(handle);
     }
@@ -7003,6 +7201,8 @@ mod tests {
                 pending_remote_bytes: 0,
                 remote_closed: false,
                 remote_aborted: false,
+                _active_flow: None,
+                destination_target: None,
             },
         );
 
@@ -7037,6 +7237,8 @@ mod tests {
                 pending_remote_bytes: NORMAL_TCP_REMOTE_PENDING_LIMIT,
                 remote_closed: false,
                 remote_aborted: false,
+                _active_flow: None,
+                destination_target: None,
             },
         );
         let mut udp_flows = HashMap::new();
@@ -7088,6 +7290,8 @@ mod tests {
                 pending_remote_bytes: 0,
                 remote_closed: false,
                 remote_aborted: false,
+                _active_flow: None,
+                destination_target: None,
             },
         );
         let mut udp_flows = HashMap::new();
@@ -7134,6 +7338,8 @@ mod tests {
                 pending_remote_bytes: 0,
                 remote_closed: false,
                 remote_aborted: false,
+                _active_flow: None,
+                destination_target: None,
             },
         )]);
         let mut flow_budget_state = test_flow_budget(256);
@@ -7196,6 +7402,8 @@ mod tests {
             pending_remote_bytes: 0,
             remote_closed: false,
             remote_aborted: false,
+            _active_flow: None,
+            destination_target: None,
         };
 
         drop(flow);
@@ -7248,6 +7456,8 @@ mod tests {
                 pending_remote_bytes: 1024 * 1024,
                 remote_closed: false,
                 remote_aborted: false,
+                _active_flow: None,
+                destination_target: None,
             },
         );
         let mut udp_flows = HashMap::new();
@@ -7301,6 +7511,8 @@ mod tests {
                 pending_remote_bytes: 0,
                 remote_closed: false,
                 remote_aborted: false,
+                _active_flow: None,
+                destination_target: None,
             },
         );
         let mut udp_flows = HashMap::new();
@@ -7358,6 +7570,8 @@ mod tests {
                 pending_remote_bytes: PRESSURE_TCP_REMOTE_PENDING_LIMIT,
                 remote_closed: false,
                 remote_aborted: false,
+                _active_flow: None,
+                destination_target: None,
             },
         );
         let mut udp_flows = HashMap::new();
@@ -7451,6 +7665,8 @@ mod tests {
                 pending_remote_bytes: TCP_BUFFER_SIZE,
                 remote_closed: false,
                 remote_aborted: false,
+                _active_flow: None,
+                destination_target: None,
             },
         );
 
