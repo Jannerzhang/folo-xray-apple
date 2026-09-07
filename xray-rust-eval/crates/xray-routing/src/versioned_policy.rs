@@ -90,35 +90,6 @@ impl VersionedRoutingPolicy {
             }
         }
 
-        // Fast path for Global or Direct modes
-        match self.mode {
-            PolicyMode::Global => {
-                return RouteDecision {
-                    network,
-                    domain_provenance: explicit_domain.map_or(DomainProvenance::None, |_| DomainProvenance::Explicit),
-                    ip: target_ip,
-                    port: target.port,
-                    rule_revision: self.revision,
-                    action: RouteAction::Proxy,
-                    reason: RouteReason::Default,
-                    matched_pattern: None,
-                };
-            }
-            PolicyMode::Direct => {
-                return RouteDecision {
-                    network,
-                    domain_provenance: explicit_domain.map_or(DomainProvenance::None, |_| DomainProvenance::Explicit),
-                    ip: target_ip,
-                    port: target.port,
-                    rule_revision: self.revision,
-                    action: RouteAction::Direct,
-                    reason: RouteReason::Default,
-                    matched_pattern: None,
-                };
-            }
-            PolicyMode::Rule => {}
-        }
-
         // 2. Explicit proxy / direct domains (for explicit domain targets)
         if let Some(domain) = explicit_domain {
             if self.explicit_proxy_domains.matches(domain) {
@@ -281,14 +252,19 @@ impl VersionedRoutingPolicy {
             }
         }
 
-        // 6. Default fallback (proxy in Rule mode)
+        // 6. Mode fallback after all explicit, DNS, sniffed and IP decisions.
+        let mode_action = match self.mode {
+            PolicyMode::Global => RouteAction::Proxy,
+            PolicyMode::Direct => RouteAction::Direct,
+            PolicyMode::Rule => RouteAction::Proxy,
+        };
         RouteDecision {
             network,
             domain_provenance: explicit_domain.map_or(DomainProvenance::None, |_| DomainProvenance::Explicit),
             ip: target_ip,
             port: target.port,
             rule_revision: self.revision,
-            action: RouteAction::Proxy,
+            action: mode_action,
             reason: RouteReason::Default,
             matched_pattern: None,
         }

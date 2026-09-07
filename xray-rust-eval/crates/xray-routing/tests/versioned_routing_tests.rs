@@ -319,6 +319,31 @@ fn test_policy_fingerprint_covers_rule_kind_all_ip_sets_and_separators() {
 }
 
 #[test]
+fn test_explicit_rules_precede_global_and_direct_mode_defaults() {
+    let now = Instant::now();
+    for (mode, expected) in [
+        (PolicyMode::Global, RouteAction::Direct),
+        (PolicyMode::Direct, RouteAction::Proxy),
+    ] {
+        let mut builder = VersionedRoutingPolicy::builder(1, mode);
+        if mode == PolicyMode::Global {
+            builder.add_explicit_direct_domain(DomainMatcher::Full("direct.example".to_owned()));
+        } else {
+            builder.add_explicit_proxy_domain(DomainMatcher::Full("proxy.example".to_owned()));
+        }
+        let policy = builder.build().unwrap();
+        let domain = if mode == PolicyMode::Global {
+            "direct.example"
+        } else {
+            "proxy.example"
+        };
+        let target = Target::new(TargetAddr::Domain(domain.to_owned()), 443, Network::Tcp);
+        let mut cache = DnsAttributionCache::new(1024, 16);
+        assert_eq!(policy.route(Network::Tcp, &target, None, &mut cache, now).action, expected);
+    }
+}
+
+#[test]
 fn test_dns_attribution_cname_dualstack_nat64_and_shared_cdn_conflict() {
     let now = Instant::now();
     let mut cache = DnsAttributionCache::new(1024 * 1024, 500);

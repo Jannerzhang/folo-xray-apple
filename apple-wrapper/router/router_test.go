@@ -93,6 +93,44 @@ func TestRouterOverlappingRulesUseSecurityThenProxyPriority(t *testing.T) {
 	}
 }
 
+func TestRouterExplicitRulesPrecedeDNSMappingAndModeDefaults(t *testing.T) {
+	r := NewRouter(Config{
+		SchemaVersion:       1,
+		Revision:            9,
+		Mode:                ModeGlobal,
+		CustomDirectDomains: []string{"domain:explicit.example"},
+	})
+	decision := r.RouteWithContext(RouteContext{
+		Domain:     "explicit.example",
+		IP:         net.ParseIP("203.0.113.7"),
+		Port:       443,
+		Network:    "udp",
+		Provenance: ProvenanceExplicit,
+		DNS: &DNSAttribution{
+			Domain:          "mapped.example",
+			Revision:        9,
+			PreferredAction: ActionProxy,
+		},
+	})
+	if decision.Action != ActionDirect || decision.Reason != ReasonCustomDomain {
+		t.Fatalf("explicit domain must beat DNS and global mode: %+v", decision)
+	}
+
+	directMode := NewRouter(Config{
+		SchemaVersion:      1,
+		Revision:           9,
+		Mode:               ModeDirect,
+		CustomProxyDomains: []string{"domain:explicit.example"},
+	})
+	decision = directMode.RouteWithContext(RouteContext{
+		Domain:     "explicit.example",
+		Provenance: ProvenanceExplicit,
+	})
+	if decision.Action != ActionProxy || decision.Reason != ReasonCustomDomain {
+		t.Fatalf("explicit proxy must beat direct mode: %+v", decision)
+	}
+}
+
 func TestRouteDecisionCarriesCrossCoreEnvelope(t *testing.T) {
 	r := NewRouter(Config{SchemaVersion: 1, Revision: 17, Mode: ModeRule, CustomProxyDomains: []string{"domain:proxy.example"}})
 	decision := r.RouteWithContext(RouteContext{

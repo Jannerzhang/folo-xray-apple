@@ -412,18 +412,7 @@ func (r *Router) RouteWithContext(input RouteContext) RouteDecision {
 		}
 	}
 
-	// Explicit DNS attribution is below explicit target rules and above sniffed
-	// domains/IP sets. Revision mismatch is intentionally ignored.
-	if input.DNS != nil && input.DNS.Revision == r.revision && input.DNS.Domain != "" {
-		if input.DNS.SecurityBlock {
-			return decision(ActionBlock, ReasonSecurityBlock, ProvenanceDNS, input.DNS.Domain)
-		}
-		if input.DNS.PreferredAction == ActionProxy || input.DNS.PreferredAction == ActionDirect {
-			return decision(input.DNS.PreferredAction, ReasonDNSMapping, ProvenanceDNS, input.DNS.Domain)
-		}
-	}
-
-	if mode == ModeRule && domain != "" {
+	if domain != "" {
 		if action, ok := r.customDomainMatcher.Match(domain); ok && action != ActionBlock {
 			reason := ReasonCustomDomain
 			source := ProvenanceExplicit
@@ -438,7 +427,18 @@ func (r *Router) RouteWithContext(input RouteContext) RouteDecision {
 		}
 	}
 
-	if mode == ModeRule && input.IP != nil {
+	// Explicit DNS attribution is below explicit target rules and above sniffed
+	// domains/IP sets. Revision mismatch is intentionally ignored.
+	if input.DNS != nil && input.DNS.Revision == r.revision && input.DNS.Domain != "" {
+		if input.DNS.SecurityBlock {
+			return decision(ActionBlock, ReasonSecurityBlock, ProvenanceDNS, input.DNS.Domain)
+		}
+		if input.DNS.PreferredAction == ActionProxy || input.DNS.PreferredAction == ActionDirect {
+			return decision(input.DNS.PreferredAction, ReasonDNSMapping, ProvenanceDNS, input.DNS.Domain)
+		}
+	}
+
+	if input.IP != nil {
 		if action, ok := r.customIPMatcher.Match(input.IP); ok && action != ActionBlock {
 			return decision(action, ReasonCustomIP, ProvenanceIPSet, input.IP.String())
 		}
