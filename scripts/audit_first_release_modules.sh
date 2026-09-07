@@ -2,18 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
-export PATH="/Users/liwanqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.4.darwin-arm64/bin:${PATH}"
-
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
+
+toolchain_lock="$repo_root/build/toolchain.lock.yml"
+expected_go="$(ruby -ryaml -e 'data = YAML.load_file(ARGV.fetch(0)); puts data.fetch("go").fetch("version")' "$toolchain_lock")"
+export GOTOOLCHAIN="${GOTOOLCHAIN:-${expected_go}+auto}"
 
 deps_file="$(mktemp -t folo-xray-deps.XXXXXX)"
 wrapper_deps_file="$(mktemp -t folo-xray-wrapper-deps.XXXXXX)"
 trap 'rm -f "$deps_file" "$wrapper_deps_file"' EXIT
 gvisor_module='github.com/sagernet/gvisor'
 
-GOTOOLCHAIN=local go list -deps github.com/xtls/xray-core/main/distro/folo > "$deps_file"
-GOTOOLCHAIN=local go list -deps github.com/Jannerzhang/folo-xray-apple/apple-wrapper > "$wrapper_deps_file"
+GOTOOLCHAIN="${GOTOOLCHAIN}" go list -deps github.com/xtls/xray-core/main/distro/folo > "$deps_file"
+GOTOOLCHAIN="${GOTOOLCHAIN}" go list -deps github.com/Jannerzhang/folo-xray-apple/apple-wrapper > "$wrapper_deps_file"
 
 required=(
   'github.com/xtls/xray-core/main/folojson'

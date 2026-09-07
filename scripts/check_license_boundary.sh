@@ -5,7 +5,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-export PATH="/Users/liwanqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.4.darwin-arm64/bin:${PATH}"
+toolchain_lock="$repo_root/build/toolchain.lock.yml"
+expected_go="$(ruby -ryaml -e 'data = YAML.load_file(ARGV.fetch(0)); puts data.fetch("go").fetch("version")' "$toolchain_lock")"
+export GOTOOLCHAIN="${GOTOOLCHAIN:-${expected_go}+auto}"
 
 search_pattern() {
   local pattern="$1"
@@ -24,16 +26,16 @@ fi
 
 ruby scripts/verify_upstream_lock.rb
 
-GOTOOLCHAIN=local go test github.com/xtls/xray-core/main/distro/folo
-GOTOOLCHAIN=local go test github.com/xtls/libxray/xray
-GOTOOLCHAIN=local go test github.com/Jannerzhang/folo-xray-apple/apple-wrapper
+GOTOOLCHAIN="${GOTOOLCHAIN}" go test github.com/xtls/xray-core/main/distro/folo
+GOTOOLCHAIN="${GOTOOLCHAIN}" go test github.com/xtls/libxray/xray
+GOTOOLCHAIN="${GOTOOLCHAIN}" go test github.com/Jannerzhang/folo-xray-apple/apple-wrapper
 
 for target in \
   github.com/Jannerzhang/folo-xray-apple/apple-wrapper \
   github.com/xtls/xray-core/main/distro/folo \
   github.com/xtls/libxray/xray
 do
-  report="$(GOTOOLCHAIN=local go run github.com/google/go-licenses@v1.6.0 report "$target")"
+  report="$(GOTOOLCHAIN="${GOTOOLCHAIN}" go run github.com/google/go-licenses@v1.6.0 report "$target")"
   if printf '%s\n' "$report" | grep -n -E -i 'GPL-3\.0|AGPL|LGPL|SSPL|BUSL|Commons Clause'; then
     echo "forbidden license reported for $target" >&2
     exit 1

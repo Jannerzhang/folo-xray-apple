@@ -284,6 +284,41 @@ fn test_error_rule_load_fails_closed_without_reverting_to_direct() {
 }
 
 #[test]
+fn test_policy_fingerprint_covers_rule_kind_all_ip_sets_and_separators() {
+    let base = VersionedRoutingPolicy::builder(7, PolicyMode::Rule)
+        .build()
+        .unwrap();
+
+    let mut direct_ip = VersionedRoutingPolicy::builder(7, PolicyMode::Rule);
+    direct_ip.add_explicit_direct_cidr(Cidr::new(
+        IpAddr::V4(Ipv4Addr::new(203, 0, 113, 0)),
+        24,
+    )
+    .unwrap());
+    let direct_ip = direct_ip.build().unwrap();
+
+    let mut china_ip = VersionedRoutingPolicy::builder(7, PolicyMode::Rule);
+    china_ip.add_china_cidr(Cidr::new(
+        IpAddr::V4(Ipv4Addr::new(203, 0, 113, 0)),
+        24,
+    )
+    .unwrap());
+    let china_ip = china_ip.build().unwrap();
+
+    let mut suffix = VersionedRoutingPolicy::builder(7, PolicyMode::Rule);
+    suffix.add_explicit_direct_domain(DomainMatcher::Suffix("example.com".to_owned()));
+    let suffix = suffix.build().unwrap();
+
+    let mut exact = VersionedRoutingPolicy::builder(7, PolicyMode::Rule);
+    exact.add_explicit_direct_domain(DomainMatcher::Full("example.com".to_owned()));
+    let exact = exact.build().unwrap();
+
+    assert_ne!(base.fingerprint, direct_ip.fingerprint);
+    assert_ne!(direct_ip.fingerprint, china_ip.fingerprint);
+    assert_ne!(suffix.fingerprint, exact.fingerprint);
+}
+
+#[test]
 fn test_dns_attribution_cname_dualstack_nat64_and_shared_cdn_conflict() {
     let now = Instant::now();
     let mut cache = DnsAttributionCache::new(1024 * 1024, 500);
