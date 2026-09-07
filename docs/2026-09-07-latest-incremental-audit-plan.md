@@ -1,6 +1,6 @@
 # 最新增量审核修复计划
 
-基线：`codex/xray-rust-core-eval`（Core `aa42c98`），包含阶段 13–16 的未提交工作树内容；本文件位于阶段 17 独立分支。
+基线：`codex/xray-rust-core-eval`（最新汇合基线 Core `c1f4452`）；本文件位于阶段 22 独立分支，汇合并重新验证阶段 17–21 修复。
 
 ## 阶段 17：引擎选择与发布证据门禁
 
@@ -26,3 +26,8 @@
 
 - 将 FFI 性能测试升级为 bounded stress/soak harness，严格检查状态码、回复数、drop、峰值和 stop。
 - 真实 iOS 设备、签名 XCFramework、受控 VLESS/Reality/Vision/XUDP 服务端和长时门禁只在发布环境执行，不在本地测试中虚报。
+
+## 阶段 22：最新基线汇合与 ABI/审批门禁
+
+- 将阶段 17–21 的修复汇合到已提交的 App/Core 最新基线，重新生成 source/SBOM/跨仓提交指纹。
+- 将 Apple Swift 适配层的 ABI 版本与 FFI v2 对齐；候选构建还必须显式声明审批宏，单独启用候选宏不得绕过发布证据。

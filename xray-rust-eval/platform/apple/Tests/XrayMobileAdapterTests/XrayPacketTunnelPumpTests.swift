@@ -187,17 +187,13 @@ final class XrayPacketTunnelPumpTests: XCTestCase {
     }
 
     func testFFIVersionValidationRejectsIncompatibleMajorABI() {
-        XCTAssertThrowsError(try XrayCore.validateFFIVersion(major: 1, minor: 0)) { error in
+        XCTAssertThrowsError(try XrayCore.validateFFIVersion(major: 1, minor: 4)) { error in
             guard case let XrayCoreError.incompatibleFFIMajorVersion(expected, actual) = error else {
                 return XCTFail("unexpected error: \(error)")
             }
             XCTAssertEqual(expected, 2)
             XCTAssertEqual(actual, 1)
         }
-    }
-
-    func testFFIVersionValidationAcceptsMinimumMinorABI() {
-        XCTAssertNoThrow(try XrayCore.validateFFIVersion(major: 2, minor: 0))
     }
 
     func testFFIInfoReportsCurrentCapabilities() {

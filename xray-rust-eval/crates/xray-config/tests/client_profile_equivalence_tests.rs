@@ -9,8 +9,12 @@ use xray_config::{
 #[test]
 fn test_client_profile_vless_reality_vision_tcp_parses_losslessly() {
     let client_rendered_json = include_str!("fixtures/shared_vless_reality_golden.json");
-    let parsed = parse_xray_json(client_rendered_json).expect("client rendered config must parse cleanly");
-    assert!(parsed.diagnostics.is_empty(), "expected zero diagnostics for valid client config");
+    let parsed =
+        parse_xray_json(client_rendered_json).expect("client rendered config must parse cleanly");
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "expected zero diagnostics for valid client config"
+    );
 
     // Verify inbounds
     assert_eq!(parsed.config.inbounds.len(), 1);
@@ -20,12 +24,18 @@ fn test_client_profile_vless_reality_vision_tcp_parses_losslessly() {
     // Verify outbounds
     assert_eq!(parsed.config.outbounds.len(), 3);
     assert_eq!(parsed.config.outbounds[0].tag.as_deref(), Some("proxy"));
-    assert_eq!(parsed.config.outbounds[0].settings.protocol(), OutboundProtocol::Vless);
+    assert_eq!(
+        parsed.config.outbounds[0].settings.protocol(),
+        OutboundProtocol::Vless
+    );
 
     let OutboundSettings::Vless(vless) = &parsed.config.outbounds[0].settings else {
         panic!("expected vless settings");
     };
-    assert_eq!(vless.server, TargetAddr::Domain("edge.example.com".to_string()));
+    assert_eq!(
+        vless.server,
+        TargetAddr::Domain("edge.example.com".to_string())
+    );
     assert_eq!(vless.port, 443);
     assert_eq!(vless.users.len(), 1);
     assert_eq!(vless.users[0].encryption, "none");
@@ -37,7 +47,10 @@ fn test_client_profile_vless_reality_vision_tcp_parses_losslessly() {
 
     // Verify stream settings
     assert_eq!(parsed.config.outbounds[0].stream.network, Network::Tcp);
-    assert_eq!(parsed.config.outbounds[0].stream.transport, StreamTransport::Raw);
+    assert_eq!(
+        parsed.config.outbounds[0].stream.transport,
+        StreamTransport::Raw
+    );
     let StreamSecurity::Reality(reality) = &parsed.config.outbounds[0].stream.security else {
         panic!("expected reality stream security");
     };
@@ -51,24 +64,44 @@ fn test_client_profile_vless_reality_vision_tcp_parses_losslessly() {
 
     // Verify direct and block outbounds
     assert_eq!(parsed.config.outbounds[1].tag.as_deref(), Some("direct"));
-    assert!(matches!(parsed.config.outbounds[1].settings, OutboundSettings::Freedom));
+    assert!(matches!(
+        parsed.config.outbounds[1].settings,
+        OutboundSettings::Freedom
+    ));
     assert_eq!(parsed.config.outbounds[2].tag.as_deref(), Some("block"));
-    assert!(matches!(parsed.config.outbounds[2].settings, OutboundSettings::Blackhole));
+    assert!(matches!(
+        parsed.config.outbounds[2].settings,
+        OutboundSettings::Blackhole
+    ));
 
     // Verify routing rules (4 rules in golden fixture)
     assert_eq!(parsed.config.routing.rules.len(), 4);
-    assert_eq!(parsed.config.routing.rules[0].target, RoutingRuleTarget::Outbound("block".to_string()));
+    assert_eq!(
+        parsed.config.routing.rules[0].target,
+        RoutingRuleTarget::Outbound("block".to_string())
+    );
     assert!(parsed.config.routing.rules[0].matches_domain(Some("ads.example")));
 
-    assert_eq!(parsed.config.routing.rules[1].target, RoutingRuleTarget::Outbound("proxy".to_string()));
+    assert_eq!(
+        parsed.config.routing.rules[1].target,
+        RoutingRuleTarget::Outbound("proxy".to_string())
+    );
     assert!(parsed.config.routing.rules[1].matches_domain(Some("sub.example.com")));
 
-    assert_eq!(parsed.config.routing.rules[2].target, RoutingRuleTarget::Outbound("direct".to_string()));
+    assert_eq!(
+        parsed.config.routing.rules[2].target,
+        RoutingRuleTarget::Outbound("direct".to_string())
+    );
     assert!(parsed.config.routing.rules[2].matches_domain(Some("captive.apple.com")));
 
-    assert_eq!(parsed.config.routing.rules[3].target, RoutingRuleTarget::Outbound("direct".to_string()));
+    assert_eq!(
+        parsed.config.routing.rules[3].target,
+        RoutingRuleTarget::Outbound("direct".to_string())
+    );
     assert!(parsed.config.routing.rules[3].matches_ip(Some(&"10.1.2.3".parse::<IpAddr>().unwrap())));
-    assert!(parsed.config.routing.rules[3].matches_ip(Some(&"192.168.1.1".parse::<IpAddr>().unwrap())));
+    assert!(
+        parsed.config.routing.rules[3].matches_ip(Some(&"192.168.1.1".parse::<IpAddr>().unwrap()))
+    );
 }
 
 #[test]
@@ -87,7 +120,14 @@ fn test_unsupported_client_protocols_and_transports_fail_closed() {
       ]
     }"#;
     let res = parse_xray_json(vmess_json);
-    assert!(res.is_err() || res.unwrap().diagnostics.iter().any(|d| d.severity == xray_config::DiagnosticSeverity::Error));
+    assert!(
+        res.is_err()
+            || res
+                .unwrap()
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == xray_config::DiagnosticSeverity::Error)
+    );
 
     // 2. Trojan outbound must fail
     let trojan_json = r#"{
@@ -103,7 +143,14 @@ fn test_unsupported_client_protocols_and_transports_fail_closed() {
       ]
     }"#;
     let res = parse_xray_json(trojan_json);
-    assert!(res.is_err() || res.unwrap().diagnostics.iter().any(|d| d.severity == xray_config::DiagnosticSeverity::Error));
+    assert!(
+        res.is_err()
+            || res
+                .unwrap()
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == xray_config::DiagnosticSeverity::Error)
+    );
 }
 
 #[test]
@@ -118,7 +165,12 @@ fn test_routing_ip_and_cidr_validation_rejects_malformed_values() {
         )
     };
 
-    for value in ["not-a-cidr", "10.0.0.0/33", "2001:db8::/129", "10.0.0.999/24"] {
+    for value in [
+        "not-a-cidr",
+        "10.0.0.0/33",
+        "2001:db8::/129",
+        "10.0.0.999/24",
+    ] {
         let parsed = parse_xray_json(&config(value));
         assert!(
             parsed.is_err()
