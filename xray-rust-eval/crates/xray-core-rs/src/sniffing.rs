@@ -24,7 +24,7 @@ const QUIC_HP_SAMPLE_LEN: usize = 16;
 const QUIC_MAX_CRYPTO_STREAM_SIZE: usize = 16 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SniffedTarget {
+pub struct SniffedTarget {
     pub route_target: Target,
     pub dial_target: Target,
     pub protocol: SniffingDestination,
@@ -44,7 +44,7 @@ pub(crate) fn should_sniff_tcp(config: Option<&InboundSniffingConfig>) -> bool {
         })
 }
 
-pub(crate) fn should_sniff_udp(config: Option<&InboundSniffingConfig>) -> bool {
+pub fn should_sniff_udp(config: Option<&InboundSniffingConfig>) -> bool {
     let Some(config) = config else {
         return false;
     };
@@ -79,7 +79,7 @@ pub(crate) fn sniff_tcp_initial_payload(
     None
 }
 
-pub(crate) fn sniff_udp_initial_payload(
+pub fn sniff_udp_initial_payload(
     config: &InboundSniffingConfig,
     original: &Target,
     payload: &[u8],
@@ -232,6 +232,16 @@ fn sniff_quic_initial_sni(packet: &[u8]) -> Option<String> {
 #[doc(hidden)]
 pub fn sniff_quic_initial_sni_for_fuzzing(packet: &[u8]) -> Option<String> {
     sniff_quic_initial_sni(packet)
+}
+
+/// Public API for single-datagram QUIC Initial SNI sniffing.
+pub fn sniff_quic_initial_sni_public(packet: &[u8]) -> Option<String> {
+    sniff_quic_initial_sni(packet)
+}
+
+/// Helper for constructing a valid encrypted QUIC Initial packet carrying TLS ClientHello SNI.
+pub fn build_test_quic_initial_packet(host: &str) -> Vec<u8> {
+    quic_initial_packet_with_sni_generator(host)
 }
 
 struct QuicInitialHeader<'a> {
@@ -584,6 +594,135 @@ fn tls13_hkdf_label(length: u16, label: &[u8]) -> Vec<u8> {
     output
 }
 
+fn encode_quic_varint_internal(value: u64, output: &mut Vec<u8>) {
+    if value < 64 {
+        output.push(value as u8);
+    } else if value < 16_384 {
+        let encoded = (value as u16) | 0x4000;
+        output.extend_from_slice(&encoded.to_be_bytes());
+    } else {
+        panic!("test varint value is too large: {value}");
+    }
+}
+
+fn quic_initial_packet_with_sni_generator(host: &str) -> Vec<u8> {
+    let mut sni_entry = Vec::new();
+    sni_entry.push(0);
+    sni_entry.extend_from_slice(&(host.len() as u16).to_be_bytes());
+    sni_entry.extend_from_slice(host.as_bytes());
+
+    let mut sni_extension = Vec::new();
+    sni_extension.extend_from_slice(&((sni_entry.len()) as u16).to_be_bytes());
+    sni_extension.extend_from_slice(&sni_entry);
+
+    let mut extensions = Vec::new();
+    extensions.extend_from_slice(&0u16.to_be_bytes());
+    extensions.extend_from_slice(&(sni_extension.len() as u16).to_be_bytes());
+    extensions.extend_from_slice(&sni_extension);
+
+    let mut body = Vec::new();
+    body.extend_from_slice(&[0x03, 0x03]);
+    body.extend_from_slice(&[0; 32]);
+    body.push(0);
+    body.extend_from_slice(&2u16.to_be_bytes());
+    body.extend_from_slice(&[0x13, 0x01]);
+    body.push(1);
+    body.push(0);
+    body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
+    body.extend_from_slice(&extensions);
+
+    let mut handshake = Vec::new();
+    handshake.push(1);
+    handshake.extend_from_slice(&[
+        ((body.len() >> 16) & 0xff) as u8,
+        ((body.len() >> 8) & 0xff) as u8,
+        (body.len() & 0xff) as u8,
+    ]);
+    handshake.extend_from_slice(&body);
+
+    const INITIAL_SALT: [u8; 20] = [
+        0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8,
+        0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a,
+    ];
+
+    let dcid = [0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08];
+    let scid = [0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb];
+    let packet_number = 0u64;
+    let packet_number_len = 1usize;
+
+    let mut plaintext = Vec::new();
+    plaintext.push(0x06);
+    encode_quic_varint_internal(0, &mut plaintext);
+    encode_quic_varint_internal(handshake.len() as u64, &mut plaintext);
+    plaintext.extend_from_slice(&handshake);
+
+    let initial_secret = {
+        let hk = Hkdf::<Sha256>::new(Some(&INITIAL_SALT), &dcid);
+        let mut secret = [0u8; 32];
+        hk.expand(&tls13_hkdf_label(32, b"client in"), &mut secret)
+            .expect("initial secret label is valid");
+        secret
+    };
+    let hk = Hkdf::<Sha256>::from_prk(&initial_secret).expect("initial secret is valid");
+    let mut key = [0u8; 16];
+    hk.expand(&tls13_hkdf_label(16, b"quic key"), &mut key)
+        .expect("key label is valid");
+    let mut iv = [0u8; 12];
+    hk.expand(&tls13_hkdf_label(12, b"quic iv"), &mut iv)
+        .expect("iv label is valid");
+    let mut hp = [0u8; 16];
+    hk.expand(&tls13_hkdf_label(16, b"quic hp"), &mut hp)
+        .expect("hp label is valid");
+
+    let mut header = Vec::new();
+    header.push(0xc0);
+    header.extend_from_slice(&1u32.to_be_bytes());
+    header.push(dcid.len() as u8);
+    header.extend_from_slice(&dcid);
+    header.push(scid.len() as u8);
+    header.extend_from_slice(&scid);
+    encode_quic_varint_internal(0, &mut header);
+    encode_quic_varint_internal(
+        packet_number_len as u64 + plaintext.len() as u64 + 16,
+        &mut header,
+    );
+    let packet_number_offset = header.len();
+    header.push(packet_number as u8);
+
+    let mut nonce = iv;
+    for (index, byte) in packet_number.to_be_bytes().iter().enumerate() {
+        nonce[4 + index] ^= byte;
+    }
+    let cipher = Aes128Gcm::new_from_slice(&key).expect("key length is valid");
+    let ciphertext = cipher
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: &plaintext,
+                aad: &header,
+            },
+        )
+        .expect("fixture encryption should succeed");
+
+    let mut packet = header;
+    packet.extend_from_slice(&ciphertext);
+
+    let sample_offset = packet_number_offset + 4;
+    let mask = {
+        let cipher = Aes128::new_from_slice(&hp).expect("hp key length is valid");
+        let mut block = aes::cipher::Block::<Aes128>::clone_from_slice(
+            &packet[sample_offset..sample_offset + 16],
+        );
+        cipher.encrypt_block(&mut block);
+        block
+    };
+    packet[0] ^= mask[0] & 0x0f;
+    for index in 0..packet_number_len {
+        packet[packet_number_offset + index] ^= mask[index + 1];
+    }
+    packet
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -776,118 +915,8 @@ mod tests {
         record.extend_from_slice(&handshake);
         record
     }
-
     fn quic_initial_packet_with_sni(host: &str) -> Vec<u8> {
-        use aes::cipher::{BlockEncrypt, KeyInit};
-        use aes::Aes128;
-        use aes_gcm::aead::{Aead, Payload};
-        use aes_gcm::{Aes128Gcm, Nonce};
-        use hkdf::Hkdf;
-        use sha2::Sha256;
-
-        const INITIAL_SALT: [u8; 20] = [
-            0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8,
-            0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a,
-        ];
-
-        let dcid = [0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08];
-        let scid = [0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb];
-        let packet_number = 0u64;
-        let packet_number_len = 1usize;
-
-        let mut plaintext = Vec::new();
-        let handshake = tls_client_hello_handshake_with_sni(host);
-        plaintext.push(0x06);
-        encode_quic_varint(0, &mut plaintext);
-        encode_quic_varint(handshake.len() as u64, &mut plaintext);
-        plaintext.extend_from_slice(&handshake);
-
-        let initial_secret = {
-            let hk = Hkdf::<Sha256>::new(Some(&INITIAL_SALT), &dcid);
-            let mut secret = [0u8; 32];
-            hk.expand(&hkdf_label(32, b"client in"), &mut secret)
-                .expect("initial secret label is valid");
-            secret
-        };
-        let hk = Hkdf::<Sha256>::from_prk(&initial_secret).expect("initial secret is valid");
-        let mut key = [0u8; 16];
-        hk.expand(&hkdf_label(16, b"quic key"), &mut key)
-            .expect("key label is valid");
-        let mut iv = [0u8; 12];
-        hk.expand(&hkdf_label(12, b"quic iv"), &mut iv)
-            .expect("iv label is valid");
-        let mut hp = [0u8; 16];
-        hk.expand(&hkdf_label(16, b"quic hp"), &mut hp)
-            .expect("hp label is valid");
-
-        let mut header = Vec::new();
-        header.push(0xc0);
-        header.extend_from_slice(&1u32.to_be_bytes());
-        header.push(dcid.len() as u8);
-        header.extend_from_slice(&dcid);
-        header.push(scid.len() as u8);
-        header.extend_from_slice(&scid);
-        encode_quic_varint(0, &mut header);
-        encode_quic_varint(
-            packet_number_len as u64 + plaintext.len() as u64 + 16,
-            &mut header,
-        );
-        let packet_number_offset = header.len();
-        header.push(packet_number as u8);
-
-        let mut nonce = iv;
-        for (index, byte) in packet_number.to_be_bytes().iter().enumerate() {
-            nonce[4 + index] ^= byte;
-        }
-        let cipher = Aes128Gcm::new_from_slice(&key).expect("key length is valid");
-        let ciphertext = cipher
-            .encrypt(
-                Nonce::from_slice(&nonce),
-                Payload {
-                    msg: &plaintext,
-                    aad: &header,
-                },
-            )
-            .expect("fixture encryption should succeed");
-
-        let mut packet = header;
-        packet.extend_from_slice(&ciphertext);
-
-        let sample_offset = packet_number_offset + 4;
-        let mask = {
-            let cipher = Aes128::new_from_slice(&hp).expect("hp key length is valid");
-            let mut block = aes::cipher::Block::<Aes128>::clone_from_slice(
-                &packet[sample_offset..sample_offset + 16],
-            );
-            cipher.encrypt_block(&mut block);
-            block
-        };
-        packet[0] ^= mask[0] & 0x0f;
-        for index in 0..packet_number_len {
-            packet[packet_number_offset + index] ^= mask[index + 1];
-        }
-        packet
-    }
-
-    fn encode_quic_varint(value: u64, output: &mut Vec<u8>) {
-        if value < 64 {
-            output.push(value as u8);
-        } else if value < 16_384 {
-            let encoded = (value as u16) | 0x4000;
-            output.extend_from_slice(&encoded.to_be_bytes());
-        } else {
-            panic!("test varint value is too large: {value}");
-        }
-    }
-
-    fn hkdf_label(length: u16, label: &[u8]) -> Vec<u8> {
-        let full_label_len = b"tls13 ".len() + label.len();
-        let mut output = Vec::with_capacity(2 + 1 + full_label_len + 1);
-        output.extend_from_slice(&length.to_be_bytes());
-        output.push(full_label_len as u8);
-        output.extend_from_slice(b"tls13 ");
-        output.extend_from_slice(label);
-        output.push(0);
-        output
+        quic_initial_packet_with_sni_generator(host)
     }
 }
+

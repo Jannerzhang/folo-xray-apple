@@ -44,6 +44,11 @@ mod tun_fd;
 #[doc(hidden)]
 pub use sniffing::sniff_quic_initial_sni_for_fuzzing;
 
+pub use sniffing::{
+    build_test_quic_initial_packet, should_sniff_udp, sniff_quic_initial_sni_public,
+    sniff_udp_initial_payload,
+};
+
 const TUN_MTU: usize = 1500;
 const TUN_INBOUND_QUEUE_DEPTH: usize = 1024;
 const TUN_OUTBOUND_QUEUE_DEPTH: usize = 4096;

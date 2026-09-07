@@ -1657,9 +1657,9 @@
       "checksum": null
     },
     {
-      "name": "webpki-roots",
-      "version": "1.0.9",
-      "license": "CDLA-Permissive-2.0",
+      "name": "rustls-native-certs",
+      "version": "0.8.1",
+      "license": "Apache-2.0 OR ISC OR MIT",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": null
     },
@@ -1992,13 +1992,7 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": null
     },
-    {
-      "name": "zlib-rs",
-      "version": "0.6.7",
-      "license": "Zlib",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": null
-    },
+
     {
       "name": "zmij",
       "version": "1.0.21",
