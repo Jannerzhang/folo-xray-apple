@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "digest"
+require "date"
 require "json"
 require "open3"
 require "yaml"
@@ -27,7 +28,7 @@ fail!("missing #{AUDIT}") unless File.file?(AUDIT)
 fail!("missing #{SBOM}") unless File.file?(SBOM)
 fail!("worktree is dirty") unless run!("git", "status", "--porcelain").strip.empty?
 
-audit = YAML.safe_load(File.read(AUDIT), aliases: false)
+audit = YAML.safe_load(File.read(AUDIT), permitted_classes: [Date], aliases: false)
 sbom = JSON.parse(File.read(SBOM))
 packages = sbom.fetch("packages")
 fail!("empty SBOM") if packages.empty?
