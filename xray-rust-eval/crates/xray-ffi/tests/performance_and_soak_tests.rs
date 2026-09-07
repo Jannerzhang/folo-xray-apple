@@ -106,7 +106,7 @@ fn test_throughput_burst_and_soak_memory_stability() {
 
     for worker_id in 0..CONCURRENCY {
         handles.push(std::thread::spawn(move || {
-            let core_ptr = core_addr as *mut xray_ffi::XrayCoreHandle;
+            let core_ptr = core_addr as *mut xray_ffi::XrayCore;
             let mut local_err = std::ptr::null_mut();
             let mut pushed_count_total = 0usize;
 
@@ -180,7 +180,7 @@ fn test_throughput_burst_and_soak_memory_stability() {
     );
     assert!(
         total_pushed > 10_000,
-        "Sustained 64-worker soak test should push at least 10,000 packets, actual pushed: {total_pushed}, total polled: {total_polled}"
+        "Sustained 64-worker soak test should push at least 10,000 packets, actual pushed: {total_pushed}"
     );
 
     // Inspect final runtime statistics
