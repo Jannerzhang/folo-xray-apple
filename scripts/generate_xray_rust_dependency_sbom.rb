@@ -42,6 +42,7 @@ metadata_json = run!(
   "--format-version", "1"
 )
 metadata = JSON.parse(metadata_json)
+canonical_metadata_json = metadata_json.gsub(ROOT, "<repo>")
 
 packages = metadata.fetch("packages").map do |package|
   {
@@ -59,7 +60,7 @@ sbom = {
   "sourceRepository" => source_repository,
   "sourceCommit" => source_commit,
   "sourceTree" => source_tree,
-  "metadataSha256" => Digest::SHA256.hexdigest(metadata_json),
+  "metadataSha256" => Digest::SHA256.hexdigest(canonical_metadata_json),
   "packages" => packages
 }
 

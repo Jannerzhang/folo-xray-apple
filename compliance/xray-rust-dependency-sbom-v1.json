@@ -1,8 +1,10 @@
 {
-  "schemaVersion": 1,
-  "generatedAt": "2026-09-04",
-  "sourceRepository": "https://github.com/aimalygin/xray-rust.git",
-  "sourceCommit": "549807d621fadc618e6d0bab75f9e58ef35a7fc1",
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-07T16:24:01+08:00",
+  "sourceRepository": "https://github.com/Jannerzhang/folo-xray-apple.git",
+  "sourceCommit": "0f7debf86889570ddf63170ca8f5c30a3853d80c",
+  "sourceTree": "31f22cc65c2c8fb4abd2914ce461d9152999fdc1",
+  "metadataSha256": "f52758dab4f37ed7ad773bed2a0c2680ea6be7d9d7044ac2b8bb7da099952b98",
   "packages": [
     {
       "name": "adler2",
@@ -267,6 +269,20 @@
       "name": "const-oid",
       "version": "0.10.2",
       "license": "Apache-2.0 OR MIT",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": null
+    },
+    {
+      "name": "core-foundation",
+      "version": "0.10.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": null
+    },
+    {
+      "name": "core-foundation-sys",
+      "version": "0.8.7",
+      "license": "MIT OR Apache-2.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": null
     },
@@ -971,6 +987,13 @@
       "checksum": null
     },
     {
+      "name": "openssl-probe",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": null
+    },
+    {
       "name": "pin-project-lite",
       "version": "0.2.17",
       "license": "Apache-2.0 OR MIT",
@@ -1209,6 +1232,13 @@
       "checksum": null
     },
     {
+      "name": "rustls-native-certs",
+      "version": "0.8.4",
+      "license": "Apache-2.0 OR ISC OR MIT",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": null
+    },
+    {
       "name": "rustls-pki-types",
       "version": "1.14.1",
       "license": "MIT OR Apache-2.0",
@@ -1230,9 +1260,30 @@
       "checksum": null
     },
     {
+      "name": "schannel",
+      "version": "0.1.29",
+      "license": "MIT",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": null
+    },
+    {
       "name": "scoped-tls",
       "version": "1.0.1",
       "license": "MIT/Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": null
+    },
+    {
+      "name": "security-framework",
+      "version": "3.7.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": null
+    },
+    {
+      "name": "security-framework-sys",
+      "version": "2.17.0",
+      "license": "MIT OR Apache-2.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": null
     },
@@ -1657,13 +1708,6 @@
       "checksum": null
     },
     {
-      "name": "rustls-native-certs",
-      "version": "0.8.1",
-      "license": "Apache-2.0 OR ISC OR MIT",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "checksum": null
-    },
-    {
       "name": "windows-link",
       "version": "0.2.1",
       "license": "MIT OR Apache-2.0",
@@ -1992,7 +2036,6 @@
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "checksum": null
     },
-
     {
       "name": "zmij",
       "version": "1.0.21",
