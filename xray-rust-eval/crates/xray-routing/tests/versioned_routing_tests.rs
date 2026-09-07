@@ -97,12 +97,12 @@ fn test_versioned_policy_priority_and_500_fixtures() {
     let mut correct_decisions = 0;
 
     // A. 150 Direct domain fixtures
-    for (_i, base) in domestic_domains.iter().enumerate() {
+    for base in &domestic_domains {
         for sub in &["www", "api", "static", "img", "m", "video"] {
             total_fixtures += 1;
             let domain = format!("{}.{}", sub, base);
             let target = Target::new(TargetAddr::Domain(domain.clone()), 443, Network::Tcp);
-            let decision = policy.route(Network::Tcp, &target, None, &dns_cache, now);
+            let decision = policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
             if decision.action == RouteAction::Direct && decision.reason == RouteReason::ExplicitDirectDomain {
                 correct_decisions += 1;
             }
@@ -110,12 +110,12 @@ fn test_versioned_policy_priority_and_500_fixtures() {
     }
 
     // B. 150 Proxy domain fixtures
-    for (_i, base) in foreign_domains.iter().enumerate() {
+    for base in &foreign_domains {
         for sub in &["www", "api", "cdn", "assets", "mobile", "auth"] {
             total_fixtures += 1;
             let domain = format!("{}.{}", sub, base);
             let target = Target::new(TargetAddr::Domain(domain.clone()), 443, Network::Tcp);
-            let decision = policy.route(Network::Tcp, &target, None, &dns_cache, now);
+            let decision = policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
             if decision.action == RouteAction::Proxy && decision.reason == RouteReason::ExplicitProxyDomain {
                 correct_decisions += 1;
             }
@@ -127,7 +127,7 @@ fn test_versioned_policy_priority_and_500_fixtures() {
         total_fixtures += 1;
         let domain = format!("sub{}.malware.com", i);
         let target = Target::new(TargetAddr::Domain(domain), 443, Network::Tcp);
-        let decision = policy.route(Network::Tcp, &target, None, &dns_cache, now);
+        let decision = policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
         if decision.action == RouteAction::Block && decision.reason == RouteReason::SecurityBlock {
             correct_decisions += 1;
         }
@@ -136,7 +136,7 @@ fn test_versioned_policy_priority_and_500_fixtures() {
         total_fixtures += 1;
         let ip = IpAddr::V4(Ipv4Addr::new(198, 51, 100, i));
         let target = Target::new(TargetAddr::Ip(ip), 80, Network::Tcp);
-        let decision = policy.route(Network::Tcp, &target, None, &dns_cache, now);
+        let decision = policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
         if decision.action == RouteAction::Block && decision.reason == RouteReason::SecurityBlock {
             correct_decisions += 1;
         }
@@ -147,7 +147,7 @@ fn test_versioned_policy_priority_and_500_fixtures() {
         total_fixtures += 1;
         let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, i));
         let target = Target::new(TargetAddr::Ip(ip), 8080, Network::Tcp);
-        let decision = policy.route(Network::Tcp, &target, None, &dns_cache, now);
+        let decision = policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
         if decision.action == RouteAction::Direct && decision.reason == RouteReason::PrivateIp {
             correct_decisions += 1;
         }
@@ -156,7 +156,7 @@ fn test_versioned_policy_priority_and_500_fixtures() {
         total_fixtures += 1;
         let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, i));
         let target = Target::new(TargetAddr::Ip(ip), 53, Network::Udp);
-        let decision = policy.route(Network::Udp, &target, None, &dns_cache, now);
+        let decision = policy.route(Network::Udp, &target, None, &mut dns_cache, now);
         if decision.action == RouteAction::Direct && decision.reason == RouteReason::PrivateIp {
             correct_decisions += 1;
         }
@@ -167,7 +167,7 @@ fn test_versioned_policy_priority_and_500_fixtures() {
         total_fixtures += 1;
         let ip = IpAddr::V4(Ipv4Addr::new(180, 101, (i / 256) as u8, (i % 256) as u8));
         let target = Target::new(TargetAddr::Ip(ip), 443, Network::Tcp);
-        let decision = policy.route(Network::Tcp, &target, None, &dns_cache, now);
+        let decision = policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
         if decision.action == RouteAction::Direct && decision.reason == RouteReason::ChinaIp {
             correct_decisions += 1;
         }
@@ -179,7 +179,7 @@ fn test_versioned_policy_priority_and_500_fixtures() {
         let ip = IpAddr::V4(Ipv4Addr::new(1, 1, 1, (i + 1) as u8)); // Non-China IP
         let target = Target::new(TargetAddr::Ip(ip), 443, Network::Tcp);
         let sniffed = format!("video{}.douyin.com", i);
-        let decision = policy.route(Network::Tcp, &target, Some(&sniffed), &dns_cache, now);
+        let decision = policy.route(Network::Tcp, &target, Some(&sniffed), &mut dns_cache, now);
         if decision.action == RouteAction::Direct && decision.reason == RouteReason::SniffedDomain {
             correct_decisions += 1;
         }
@@ -190,7 +190,7 @@ fn test_versioned_policy_priority_and_500_fixtures() {
         total_fixtures += 1;
         let ip = IpAddr::V4(Ipv4Addr::new(101, 200, 1, 10));
         let target = Target::new(TargetAddr::Ip(ip), 443, Network::Tcp);
-        let decision = policy.route(Network::Tcp, &target, None, &dns_cache, now);
+        let decision = policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
         if decision.action == RouteAction::Direct && decision.reason == RouteReason::DnsDomainMapping {
             correct_decisions += 1;
         }
@@ -199,7 +199,7 @@ fn test_versioned_policy_priority_and_500_fixtures() {
         total_fixtures += 1;
         let ip = IpAddr::V4(Ipv4Addr::new(104, 18, 1, 10));
         let target = Target::new(TargetAddr::Ip(ip), 443, Network::Tcp);
-        let decision = policy.route(Network::Tcp, &target, None, &dns_cache, now);
+        let decision = policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
         if decision.action == RouteAction::Proxy && decision.reason == RouteReason::DnsDomainMapping {
             correct_decisions += 1;
         }
@@ -230,13 +230,13 @@ fn test_rule_update_preserves_active_flows_and_assigns_new_revision() {
     let policy1 = builder1.build().unwrap();
 
     let holder = AtomicPolicyHolder::new(policy1);
-    let dns_cache = DnsAttributionCache::new(1024 * 1024, 100);
+    let mut dns_cache = DnsAttributionCache::new(1024 * 1024, 100);
 
     // Flow 1 starts and snapshots generation 1
     let flow1_policy = holder.snapshot();
     let target = Target::new(TargetAddr::Domain("test.example.com".to_string()), 443, Network::Tcp);
 
-    let d1 = flow1_policy.route(Network::Tcp, &target, None, &dns_cache, now);
+    let d1 = flow1_policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
     assert_eq!(d1.rule_revision, 1);
     assert_eq!(d1.action, RouteAction::Direct);
 
@@ -249,13 +249,13 @@ fn test_rule_update_preserves_active_flows_and_assigns_new_revision() {
     assert_eq!(new_rev, 2);
 
     // Flow 1 is still running, still holds flow1_policy: MUST still evaluate to Revision 1 & Direct
-    let d1_after = flow1_policy.route(Network::Tcp, &target, None, &dns_cache, now);
+    let d1_after = flow1_policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
     assert_eq!(d1_after.rule_revision, 1);
     assert_eq!(d1_after.action, RouteAction::Direct);
 
     // New Flow 2 snapshots latest from holder: MUST observe Revision 2 & Proxy
     let flow2_policy = holder.snapshot();
-    let d2 = flow2_policy.route(Network::Tcp, &target, None, &dns_cache, now);
+    let d2 = flow2_policy.route(Network::Tcp, &target, None, &mut dns_cache, now);
     assert_eq!(d2.rule_revision, 2);
     assert_eq!(d2.action, RouteAction::Proxy);
 }
@@ -278,7 +278,8 @@ fn test_error_rule_load_fails_closed_without_reverting_to_direct() {
     // Active policy is unchanged and does NOT fall back to direct
     let active = holder.snapshot();
     let target = Target::new(TargetAddr::Domain("test.important.com".to_string()), 443, Network::Tcp);
-    let decision = active.route(Network::Tcp, &target, None, &DnsAttributionCache::new(1024, 10), Instant::now());
+    let mut dns_cache = DnsAttributionCache::new(1024, 10);
+    let decision = active.route(Network::Tcp, &target, None, &mut dns_cache, Instant::now());
     assert_eq!(decision.action, RouteAction::Proxy);
 }
 
@@ -381,4 +382,150 @@ fn test_dns_cache_capacity_and_ttl_eviction() {
     let future = now + Duration::from_secs(15);
     cache.prune_expired(future);
     assert_eq!(cache.len(), 0);
+}
+
+#[test]
+fn test_dns_cache_strict_revision_client_nat64_lru_and_cname_replacement() {
+    let now = Instant::now();
+    let nat64 = IpAddr::V6(Ipv6Addr::new(0x0064, 0xff9b, 0, 0, 0, 0, 0xcb00, 0x7101));
+    let embedded = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1));
+    let mut cache = DnsAttributionCache::new(1024 * 1024, 2);
+
+    cache.insert(
+        Some("client-a"),
+        "old.example.com",
+        vec![nat64],
+        Duration::from_secs(60),
+        1,
+        false,
+        false,
+        now,
+    );
+    assert_eq!(
+        cache
+            .lookup_ip_for_revision(&nat64, Some("client-a"), 1, now)
+            .unwrap()
+            .qname_normalized,
+        "old.example.com"
+    );
+    assert_eq!(
+        cache
+            .lookup_ip_for_revision(&embedded, Some("client-a"), 1, now)
+            .unwrap()
+            .qname_normalized,
+        "old.example.com"
+    );
+    assert!(cache
+        .lookup_ip_for_revision(&nat64, Some("client-b"), 1, now)
+        .is_none());
+
+    cache.insert(
+        Some("client-a"),
+        "new.example.com",
+        vec![embedded],
+        Duration::from_secs(60),
+        2,
+        true,
+        false,
+        now,
+    );
+    assert_eq!(
+        cache
+            .lookup_ip_for_revision(&embedded, Some("client-a"), 1, now)
+            .unwrap()
+            .qname_normalized,
+        "old.example.com"
+    );
+    assert_eq!(
+        cache
+            .lookup_ip_for_revision(&embedded, Some("client-a"), 2, now)
+            .unwrap()
+            .qname_normalized,
+        "new.example.com"
+    );
+
+    let mut cname_cache = DnsAttributionCache::new(1024 * 1024, 16);
+    cname_cache.insert(
+        None,
+        "canonical-one.example.com",
+        vec![IpAddr::V4(Ipv4Addr::new(198, 51, 100, 1))],
+        Duration::from_secs(60),
+        2,
+        false,
+        false,
+        now,
+    );
+    cname_cache.insert_cname(
+        "alias.example.com",
+        "canonical-one.example.com",
+        Duration::from_secs(60),
+        2,
+        false,
+        now,
+    );
+    assert_eq!(
+        cname_cache
+            .lookup_domain_for_revision("alias.example.com", None, 2, now)
+            .unwrap()
+            .cname_chain,
+        vec!["canonical-one.example.com"]
+    );
+    cname_cache.insert(
+        None,
+        "canonical-two.example.com",
+        vec![IpAddr::V4(Ipv4Addr::new(198, 51, 100, 2))],
+        Duration::from_secs(60),
+        2,
+        true,
+        false,
+        now,
+    );
+    cname_cache.insert_cname(
+        "alias.example.com",
+        "canonical-two.example.com",
+        Duration::from_secs(60),
+        2,
+        true,
+        now,
+    );
+    assert_eq!(
+        cname_cache
+            .lookup_domain_for_revision("alias.example.com", None, 2, now)
+            .unwrap()
+            .cname_chain,
+        vec!["canonical-two.example.com"]
+    );
+
+    let mut lru = DnsAttributionCache::new(1024 * 1024, 2);
+    for (domain, ip) in [("d1.example", 1), ("d2.example", 2)] {
+        lru.insert(
+            None,
+            domain,
+            vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, ip))],
+            Duration::from_secs(60),
+            1,
+            false,
+            false,
+            now,
+        );
+    }
+    let d1 = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+    assert!(lru.lookup_ip_for_revision(&d1, None, 1, now).is_some());
+    lru.insert(
+        None,
+        "d3.example",
+        vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 3))],
+        Duration::from_secs(60),
+        1,
+        false,
+        false,
+        now,
+    );
+    assert!(lru
+        .lookup_domain_for_revision("d1.example", None, 1, now)
+        .is_some());
+    assert!(lru
+        .lookup_domain_for_revision("d2.example", None, 1, now)
+        .is_none());
+    assert!(lru.current_bytes() <= 1024 * 1024);
 }

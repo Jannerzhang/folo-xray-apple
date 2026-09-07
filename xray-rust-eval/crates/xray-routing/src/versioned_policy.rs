@@ -52,7 +52,7 @@ impl VersionedRoutingPolicy {
         network: Network,
         target: &Target,
         sniffed_domain: Option<&str>,
-        dns_cache: &DnsAttributionCache,
+        dns_cache: &mut DnsAttributionCache,
         now: Instant,
     ) -> RouteDecision {
         let (explicit_domain, target_ip) = match &target.addr {
@@ -149,7 +149,7 @@ impl VersionedRoutingPolicy {
 
         // 3. DNS-domain mapping (from DNS attribution cache)
         if let Some(ip) = target_ip {
-            if let Some(dns_rec) = dns_cache.lookup_ip(&ip, now) {
+            if let Some(dns_rec) = dns_cache.lookup_ip_for_revision(&ip, None, self.revision, now) {
                 if dns_rec.is_security_block {
                     return RouteDecision {
                         network,
