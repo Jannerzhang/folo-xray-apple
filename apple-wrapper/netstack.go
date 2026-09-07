@@ -365,6 +365,29 @@ func (n *netstackRuntime) readPacket(dst []byte) (int, error) {
 	return offset, nil
 }
 
+func (n *netstackRuntime) waitForReadiness(timeout time.Duration) bool {
+	if timeout <= 0 {
+		select {
+		case <-n.notify.ready:
+			return true
+		case <-n.ctx.Done():
+			return false
+		default:
+			return false
+		}
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-n.notify.ready:
+		return true
+	case <-n.ctx.Done():
+		return false
+	case <-timer.C:
+		return false
+	}
+}
+
 var tcpBufferPool = sync.Pool{
 	New: func() interface{} {
 		b := make([]byte, netstackCopyBufferSize)
@@ -837,6 +860,19 @@ func readNetstackPacket(buffer []byte) (int, int32) {
 		return 0, statusInvalidState
 	}
 	return 0, statusInvalidArgument
+}
+
+func waitNetstackPacket(timeoutMilliseconds uint32) int32 {
+	netstack.Lock()
+	runtime := netstack.runtime
+	netstack.Unlock()
+	if runtime == nil {
+		return statusInvalidState
+	}
+	if runtime.waitForReadiness(time.Duration(timeoutMilliseconds) * time.Millisecond) {
+		return statusOK
+	}
+	return statusWouldBlock
 }
 
 func getNetstackDiagnosticsJSON() string {
