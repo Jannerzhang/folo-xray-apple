@@ -63,7 +63,7 @@ fn test_quic_initial_sniffing_rejects_malformed_packets() {
 #[test]
 fn test_udp_quic_split_routing_with_versioned_policy() {
     let now = Instant::now();
-    let dns_cache = DnsAttributionCache::new(512, 128 * 1024);
+    let mut dns_cache = DnsAttributionCache::new(512, 128 * 1024);
 
     let mut builder = VersionedRoutingPolicyBuilder::new(1, PolicyMode::Rule);
     builder
@@ -97,7 +97,7 @@ fn test_udp_quic_split_routing_with_versioned_policy() {
         TargetAddr::Domain(d) => d.as_str(),
         _ => panic!("Expected domain target"),
     };
-    let decision = policy.route(Network::Udp, &dummy_target, Some(dy_domain), &dns_cache, now);
+    let decision = policy.route(Network::Udp, &dummy_target, Some(dy_domain), &mut dns_cache, now);
     assert_eq!(decision.action, RouteAction::Direct);
     assert_eq!(decision.reason, RouteReason::SniffedDomain);
     assert_eq!(decision.domain_provenance, DomainProvenance::Sniffed);
@@ -110,7 +110,7 @@ fn test_udp_quic_split_routing_with_versioned_policy() {
         TargetAddr::Domain(d) => d.as_str(),
         _ => panic!("Expected domain target"),
     };
-    let decision = policy.route(Network::Udp, &dummy_target, Some(tb_domain), &dns_cache, now);
+    let decision = policy.route(Network::Udp, &dummy_target, Some(tb_domain), &mut dns_cache, now);
     assert_eq!(decision.action, RouteAction::Direct);
     assert_eq!(decision.reason, RouteReason::SniffedDomain);
 
@@ -122,7 +122,7 @@ fn test_udp_quic_split_routing_with_versioned_policy() {
         TargetAddr::Domain(d) => d.as_str(),
         _ => panic!("Expected domain target"),
     };
-    let decision = policy.route(Network::Udp, &dummy_target, Some(yt_domain), &dns_cache, now);
+    let decision = policy.route(Network::Udp, &dummy_target, Some(yt_domain), &mut dns_cache, now);
     assert_eq!(decision.action, RouteAction::Proxy);
     assert_eq!(decision.reason, RouteReason::SniffedDomain);
 
@@ -134,7 +134,7 @@ fn test_udp_quic_split_routing_with_versioned_policy() {
         TargetAddr::Domain(d) => d.as_str(),
         _ => panic!("Expected domain target"),
     };
-    let decision = policy.route(Network::Udp, &dummy_target, Some(ad_domain), &dns_cache, now);
+    let decision = policy.route(Network::Udp, &dummy_target, Some(ad_domain), &mut dns_cache, now);
     assert_eq!(decision.action, RouteAction::Block);
     assert_eq!(decision.reason, RouteReason::SecurityBlock);
 }

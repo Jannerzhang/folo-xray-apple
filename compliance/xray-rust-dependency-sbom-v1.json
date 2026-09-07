@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-07T16:52:56+08:00",
+  "generatedAt": "2026-09-07T17:10:24+08:00",
   "sourceRepository": "https://github.com/Jannerzhang/folo-xray-apple.git",
-  "sourceCommit": "714df277d501358f5305035b6ed5035304738bc9",
-  "sourceTree": "56c9b81468f3c5652fcb20f64af2df17c783df43",
+  "sourceCommit": "31a73412c509c2a37afa55c74e4c96d7ba80efd4",
+  "sourceTree": "b6cf259c110785c24fd6efa5bdf4e44f136a37b4",
   "metadataSha256": "f52758dab4f37ed7ad773bed2a0c2680ea6be7d9d7044ac2b8bb7da099952b98",
   "packages": [
     {
