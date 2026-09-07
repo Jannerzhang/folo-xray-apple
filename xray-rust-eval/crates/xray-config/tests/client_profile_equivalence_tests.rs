@@ -105,3 +105,35 @@ fn test_unsupported_client_protocols_and_transports_fail_closed() {
     let res = parse_xray_json(trojan_json);
     assert!(res.is_err() || res.unwrap().diagnostics.iter().any(|d| d.severity == xray_config::DiagnosticSeverity::Error));
 }
+
+#[test]
+fn test_routing_ip_and_cidr_validation_rejects_malformed_values() {
+    let config = |value: &str| {
+        format!(
+            r#"{{
+              "inbounds": [{{"tag":"tun-in","protocol":"tun","listen":"127.0.0.1","port":0,"settings":{{}}}}],
+              "outbounds": [{{"tag":"direct","protocol":"freedom"}}],
+              "routing": {{"rules":[{{"type":"field","ip":["{value}"],"outboundTag":"direct"}}]}}
+            }}"#
+        )
+    };
+
+    for value in ["not-a-cidr", "10.0.0.0/33", "2001:db8::/129", "10.0.0.999/24"] {
+        let parsed = parse_xray_json(&config(value));
+        assert!(
+            parsed.is_err()
+                || parsed
+                    .as_ref()
+                    .expect("successful parser result")
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.severity == xray_config::DiagnosticSeverity::Error),
+            "malformed routing matcher must fail closed: {value}"
+        );
+    }
+
+    let mixed = config("10.0.0.0/8");
+    assert!(parse_xray_json(&mixed).is_ok());
+    let mixed_ipv6 = config("2001:db8::/32");
+    assert!(parse_xray_json(&mixed_ipv6).is_ok());
+}

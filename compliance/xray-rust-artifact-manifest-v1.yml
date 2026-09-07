@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 1
+status: CANDIDATE_ONLY
+releaseReady: false
+appIntegrationAllowed: false
+
+source:
+  appCommit: e0832fcd1ea0e182c6e459c5201c9bc563ba3e0c
+  coreCommit: 26fe6d2b98ae2273ceb0109df8ca5655e454d1ab
+  sourceTree: dcebf2dead53154f5ad38d409ad6712349832e0f
+  abiMajor: 2
+  abiMinor: 0
+  ffiHeaderSha256: 372a5539756df970583b58c3a077363e23dc55b7445b21ecef52ce79b814f952
+  cargoLockSha256: 270d481f84d5e6f8072f6c65988dc2a5f2ef5f9fe7c1055f48c16fe88475ab8a
+
+artifact:
+  name: XrayRust.xcframework.zip
+  expectedSha256: 4d2d72fbbb44ebcde2d1fa129ff87e2b055933597656b35cb096bcdeef7ed84c
+  present: false
+  signed: false
+  linked: false
+  installedOnDevice: false
+
+evidence:
+  dependencyGraph: verified
+  licenseBoundary: verified_for_current_graph
+  packetFlow: missing
+  device: missing
+  controlledInterop: missing
+  performanceSoak: missing
