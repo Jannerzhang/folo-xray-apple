@@ -733,6 +733,38 @@ fn apple_adapter_build_script_covers_swiftpm_host_build() {
 }
 
 #[test]
+fn release_gate_scripts_require_long_soak_and_real_apple_artifact() {
+    let root = workspace_root();
+    let performance_gate = fs::read_to_string(root.join("scripts/run-ios-performance-gate.sh"))
+        .expect("read iOS performance gate script");
+    let artifact_gate = fs::read_to_string(root.join("scripts/verify-apple-artifact-gate.sh"))
+        .expect("read Apple artifact gate script");
+
+    assert!(performance_gate.contains("SOAK_SECONDS=\"${XRAY_FFI_SOAK_SECONDS:-1800}\""));
+    assert!(performance_gate.contains("--ignored"));
+    assert!(performance_gate.contains("XRAY_ALLOW_SHORT_GATE"));
+    assert!(artifact_gate.contains("XCFRAMEWORK_PATH"));
+    assert!(artifact_gate.contains("xray_core_cancel_tun_poll"));
+    assert!(artifact_gate.contains("xray_tun_push_packets"));
+    assert!(artifact_gate.contains("xray_tun_poll_packets"));
+}
+
+#[test]
+fn shared_profile_fixture_check_is_explicitly_cross_repository() {
+    let script =
+        fs::read_to_string(workspace_root().join("scripts/check-shared-profile-fixture.sh"))
+            .expect("read cross-repository profile fixture check");
+
+    assert!(script.contains("APP_ROOT"));
+    assert!(
+        script.contains("Tests/FoloPacketTunnelTests/Resources/shared_vless_reality_golden.json")
+    );
+    assert!(script.contains("crates/xray-config/tests/fixtures/shared_vless_reality_golden.json"));
+    assert!(script.contains("cmp -s"));
+    assert!(script.contains("shasum -a 256"));
+}
+
+#[test]
 fn apple_adapter_link_script_covers_mobile_triples() {
     let script = fs::read_to_string(workspace_root().join("scripts/check-apple-adapter-link.sh"))
         .expect("read Apple adapter link script");

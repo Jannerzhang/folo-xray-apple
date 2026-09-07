@@ -33,6 +33,16 @@ sbom = JSON.parse(File.read(SBOM))
 packages = sbom.fetch("packages")
 fail!("empty SBOM") if packages.empty?
 
+manifest_path = File.expand_path(
+  audit.fetch("artifactManifest"),
+  File.dirname(AUDIT)
+)
+fail!("missing artifact manifest #{manifest_path}") unless File.file?(manifest_path)
+manifest = YAML.safe_load(File.read(manifest_path), permitted_classes: [Date], aliases: false)
+fail!("artifact manifest must remain candidate-only") unless manifest.fetch("status") == "CANDIDATE_ONLY"
+fail!("artifact manifest cannot release without a verified artifact") if manifest.fetch("releaseReady")
+fail!("App integration cannot be allowed without a verified artifact") if manifest.fetch("appIntegrationAllowed")
+
 policy_path = File.expand_path(audit.fetch("policy"), File.dirname(AUDIT))
 policy_root = File.dirname(AUDIT)
 fail!("policy reference escapes compliance directory") unless policy_path.start_with?("#{policy_root}/")
@@ -63,6 +73,36 @@ if current_source_tree != source_tree
 end
 fail!("source commit differs from audit") unless scope.fetch("sourceCommit") == source_commit
 fail!("source tree differs from audit") unless scope.fetch("sourceTree") == source_tree
+
+manifest_source = manifest.fetch("source")
+fail!("artifact manifest source commit differs from audit") unless manifest_source.fetch("coreCommit") == source_commit
+fail!("artifact manifest source tree differs from SBOM") unless manifest_source.fetch("sourceTree") == source_tree
+header_path = File.join(ROOT, "xray-rust-eval", "crates", "xray-ffi", "include", "xray_ffi.h")
+header_sha = Digest::SHA256.file(header_path).hexdigest
+fail!("artifact manifest FFI header hash is stale") unless manifest_source.fetch("ffiHeaderSha256") == header_sha
+fail!("artifact manifest must record ABI major 2") unless manifest_source.fetch("abiMajor") == 2
+fail!("artifact manifest must record ABI minor 0") unless manifest_source.fetch("abiMinor") == 0
+fail!("artifact manifest must keep artifact absent") if manifest.fetch("artifact").fetch("present")
+fail!("artifact manifest must keep signed/link/device gates closed") if %w[signed linked installedOnDevice].any? { |key| manifest.fetch("artifact").fetch(key) }
+
+source_lock_path = File.join(ROOT, "compliance", "xray-rust-eval-source-lock.yml")
+source_lock = YAML.safe_load(File.read(source_lock_path), permitted_classes: [Date], aliases: false)
+lock_ffi = source_lock.fetch("core").fetch("ffi")
+fail!("source lock ABI major disagrees with artifact manifest") unless lock_ffi.fetch("abiMajor") == manifest_source.fetch("abiMajor")
+fail!("source lock ABI minor disagrees with artifact manifest") unless lock_ffi.fetch("abiMinor") == manifest_source.fetch("abiMinor")
+cross_repository = source_lock.fetch("crossRepository")
+fail!("source lock App commit disagrees with artifact manifest") unless cross_repository.fetch("iosCommit") == manifest_source.fetch("appCommit")
+fail!("source lock Core commit disagrees with artifact manifest") unless cross_repository.fetch("coreCommit") == manifest_source.fetch("coreCommit")
+
+final_evaluation_path = File.join(ROOT, "compliance", "xray-rust-final-evaluation-v1.yml")
+final_evaluation = YAML.safe_load(File.read(final_evaluation_path), permitted_classes: [Date], aliases: false)
+final_source = final_evaluation.fetch("source")
+fail!("final evaluation ABI major disagrees with artifact manifest") unless final_source.fetch("abiMajor") == manifest_source.fetch("abiMajor")
+fail!("final evaluation Core commit disagrees with artifact manifest") unless final_source.fetch("coreCommit") == manifest_source.fetch("coreCommit")
+stale_runtime_license = final_evaluation.fetch("blockingFindings").any? do |finding|
+  finding.fetch("detail").match?(/webpki-roots|zlib-rs/i)
+end
+fail!("final evaluation still reports eliminated webpki/zlib packages as runtime blockers") if stale_runtime_license
 
 metadata_json = run!(
   "cargo", "metadata", "--manifest-path", "xray-rust-eval/Cargo.toml",
