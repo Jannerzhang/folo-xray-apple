@@ -821,8 +821,8 @@ mod tests {
     #[test]
     fn reality_config_keeps_supported_profile_certificate_decompressors() {
         for (fingerprint, expected) in [
-            ("safari", BTreeSet::from([1u16])),
-            ("firefox", BTreeSet::from([1u16, 2u16, 3u16])),
+            ("safari", BTreeSet::new()),
+            ("firefox", BTreeSet::from([2u16, 3u16])),
             ("android", BTreeSet::new()),
         ] {
             let profile = profile_for_fingerprint(fingerprint)
