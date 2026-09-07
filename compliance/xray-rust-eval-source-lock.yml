@@ -43,9 +43,9 @@ mobile:
     macosDeploymentTarget: 11.0
 
 crossRepository:
-  iosCommit: e0832fcd1ea0e182c6e459c5201c9bc563ba3e0c
-  coreCommit: 42f3c7da2ddaf2a24910c67ffc7c77e8d8069e87
-  note: "The lock records the latest staged App/Core evaluation pair; upstream source identity remains separately pinned above."
+  iosCommit: c00265346057a8110f08be2ade9ceba4dbe0a4ab
+  coreCommit: bd7ff311616b8c5391760c5b1c6f0c235d807b60
+  note: "The lock records the latest-base App/Core evaluation pair; upstream source identity remains separately pinned above."
 
 reviewFindings:
   - "The v0.5.0 mobile tag is annotated; peeled commit is recorded separately."
