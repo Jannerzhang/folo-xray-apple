@@ -10,7 +10,7 @@ sbom: xray-rust-dependency-sbom-v1.json
 
 scope:
   rustWorkspacePackages: 294
-  iosArm64RuntimePackages: 263
+  iosArm64RuntimePackages: 199
   graphCommand: "cargo tree --manifest-path xray-rust-eval/Cargo.toml --locked --package xray-ffi --target aarch64-apple-ios --edges normal"
   graphSha256: c08fdaa0a3f8598fe02412e20aac494c12db0b25e4a67d515250f217571d3235
   metadataCommand: "cargo metadata --manifest-path xray-rust-eval/Cargo.toml --locked --format-version 1"
