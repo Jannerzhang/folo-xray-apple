@@ -317,6 +317,11 @@ func FoloXrayNetstackReadPacket(buffer *C.uint8_t, capacity C.size_t, readLength
 	return C.int32_t(code)
 }
 
+//export FoloXrayNetstackWait
+func FoloXrayNetstackWait(timeoutMilliseconds C.uint32_t) C.int32_t {
+	return C.int32_t(waitNetstackPacket(uint32(timeoutMilliseconds)))
+}
+
 //export FoloXrayNetstackCopyDiagnosticsJSON
 func FoloXrayNetstackCopyDiagnosticsJSON() *C.char {
 	return C.CString(getNetstackDiagnosticsJSON())

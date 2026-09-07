@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 	"github.com/sagernet/gvisor/pkg/tcpip/transport/tcp"
@@ -115,5 +116,26 @@ func TestNetstackDiagnostics_ConcurrencyAndRejection(t *testing.T) {
 	}
 	if _, ok := parsed["routePolicyRevision"]; !ok {
 		t.Errorf("missing routePolicyRevision in JSON")
+	}
+}
+
+func TestNetstackReadinessWaitWakesWithoutPolling(t *testing.T) {
+	config := &core.Config{}
+	instance, err := core.New(config)
+	if err != nil {
+		t.Fatalf("failed to create core instance: %v", err)
+	}
+	runtime, err := newNetstackRuntime(instance, router.NewRouter(router.Config{Mode: router.ModeRule}))
+	if err != nil {
+		t.Fatalf("failed to create netstack runtime: %v", err)
+	}
+	defer runtime.close()
+
+	if runtime.waitForReadiness(2 * time.Millisecond) {
+		t.Fatal("empty netstack must time out without a readiness event")
+	}
+	runtime.notify.WriteNotify()
+	if !runtime.waitForReadiness(50 * time.Millisecond) {
+		t.Fatal("readiness notification must wake the waiter")
 	}
 }
