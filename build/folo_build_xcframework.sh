@@ -216,6 +216,9 @@ for path in sorted(item for item in root.rglob('*') if item.is_file()):
 print(hashlib.sha256(b"".join(records)).hexdigest())
 PY
 )"
+HEADER_SHA256="$(shasum -a 256 "${HEADER_ROOT}/folo_apple.h" | awk '{print $1}')"
+MODULEMAP_SHA256="$(shasum -a 256 "${HEADER_ROOT}/module.modulemap" | awk '{print $1}')"
+EXPORTED_SYMBOLS_SHA256="$(shasum -a 256 "${BUILD_ROOT}/symbols/exported.txt" | awk '{print $1}')"
 
 cat > "${BUILD_ROOT}/artifact-manifest.yml" <<EOF
 schemaVersion: 1
@@ -248,6 +251,9 @@ hashes:
   deviceStaticLibrary: ${DEVICE_SHA256}
   simulatorStaticLibrary: ${SIMULATOR_SHA256}
   normalizedXcframework: ${FRAMEWORK_SHA256}
+  header: ${HEADER_SHA256}
+  moduleMap: ${MODULEMAP_SHA256}
+  exportedSymbols: ${EXPORTED_SYMBOLS_SHA256}
 licenseBoundary: scripts/check_license_boundary.sh
 sourceOffer: compliance/SOURCE_OFFER.md
 linkFrameworks:
