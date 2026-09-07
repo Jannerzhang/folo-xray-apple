@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 schemaVersion: 1
 status: candidate-only
-reviewDate: 2026-09-04
+reviewDate: 2026-09-07
 purpose: "Immutable source and SDK identity for the xray-rust replacement evaluation"
 
 core:
@@ -44,7 +44,7 @@ mobile:
 
 crossRepository:
   iosCommit: e0832fcd1ea0e182c6e459c5201c9bc563ba3e0c
-  coreCommit: 26fe6d2b98ae2273ceb0109df8ca5655e454d1ab
+  coreCommit: 42f3c7da2ddaf2a24910c67ffc7c77e8d8069e87
   note: "The lock records the latest staged App/Core evaluation pair; upstream source identity remains separately pinned above."
 
 reviewFindings:
