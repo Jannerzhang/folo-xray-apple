@@ -2,7 +2,7 @@ schemaVersion: 1
 evaluation: xray-rust-long-term-replacement
 date: 2026-09-07
 source:
-  coreCommit: bd7ff311616b8c5391760c5b1c6f0c235d807b60
+  coreCommit: 35cb74f3471fb0a3bb879e9f8b37838d72b14eb7
   mobileCommit: 377bc2523a97b4faf3b039b65dce2a94381c2e6e
   mobileAppleArtifactSHA256: 4d2d72fbbb44ebcde2d1fa129ff87e2b055933597656b35cb096bcdeef7ed84c
   abiMajor: 2

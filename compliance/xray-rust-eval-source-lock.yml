@@ -44,7 +44,7 @@ mobile:
 
 crossRepository:
   iosCommit: c00265346057a8110f08be2ade9ceba4dbe0a4ab
-  coreCommit: bd7ff311616b8c5391760c5b1c6f0c235d807b60
+  coreCommit: 35cb74f3471fb0a3bb879e9f8b37838d72b14eb7
   note: "The lock records the latest-base App/Core evaluation pair; upstream source identity remains separately pinned above."
 
 reviewFindings:

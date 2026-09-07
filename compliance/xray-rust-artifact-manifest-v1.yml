@@ -6,8 +6,8 @@ appIntegrationAllowed: false
 
 source:
   appCommit: c00265346057a8110f08be2ade9ceba4dbe0a4ab
-  coreCommit: bd7ff311616b8c5391760c5b1c6f0c235d807b60
-  sourceTree: 030c48a43604bedd0708bdfe9944eaded4687e4b
+  coreCommit: 35cb74f3471fb0a3bb879e9f8b37838d72b14eb7
+  sourceTree: 1e71802c1b94e477e790a348878001400149c1b5
   abiMajor: 2
   abiMinor: 0
   ffiHeaderSha256: 372a5539756df970583b58c3a077363e23dc55b7445b21ecef52ce79b814f952
