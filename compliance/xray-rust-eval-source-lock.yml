@@ -42,9 +42,9 @@ mobile:
     macosDeploymentTarget: 11.0
 
 crossRepository:
-  iosCommit: d1af8098ba9a4c49be2260d21815928314df627c
-  coreCommit: "this commit"
-  note: "The iOS commit records the same mapping as this core lock; SHA is updated after both commits."
+  iosCommit: 13de7df48decd0b114abc7bfdd37a5c1390b4d54
+  coreCommit: 73926d23ec04ac08644b35b06b0e092ed2dd6a58
+  note: "The lock records the final verified audit-fix-07 pair; the Rust source identity remains the upstream snapshot plus explicit evaluation commits."
 
 reviewFindings:
   - "The v0.5.0 mobile tag is annotated; peeled commit is recorded separately."
