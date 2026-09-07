@@ -54,6 +54,7 @@ int32_t FoloXrayNetstackWritePacket(const uint8_t *packet, size_t length);
 int32_t FoloXrayNetstackReadPacket(uint8_t *buffer,
                                    size_t capacity,
                                    size_t *read_length);
+char *FoloXrayNetstackCopyDiagnosticsJSON(void);
 
 char *FoloXrayCopyVersion(void);
 char *FoloXrayCopyLastError(void);

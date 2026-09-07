@@ -135,3 +135,80 @@ func BenchmarkDomainMatching(b *testing.B) {
 		_ = r.Route(d, ip, 443)
 	}
 }
+
+func TestRouteWithReasonAndStats(t *testing.T) {
+	cfg := Config{
+		Mode:                ModeRule,
+		CustomDirectDomains: []string{"custom-direct.com"},
+		CustomBlockDomains:  []string{"custom-block.com"},
+		CustomDirectIPs:     []string{"1.2.3.0/24"},
+	}
+	r := NewRouter(cfg)
+
+	// 1. Private IP
+	act, reason := r.RouteWithReason("", net.ParseIP("10.0.0.1"), 80)
+	if act != ActionDirect || reason != ReasonPrivateIP {
+		t.Fatalf("expected Direct, ReasonPrivateIP; got %v, %v", act, reason)
+	}
+
+	// 2. Custom Domain
+	act, reason = r.RouteWithReason("sub.custom-direct.com", nil, 443)
+	if act != ActionDirect || reason != ReasonCustomDomain {
+		t.Fatalf("expected Direct, ReasonCustomDomain; got %v, %v", act, reason)
+	}
+
+	// 3. Builtin Domain
+	act, reason = r.RouteWithReason("v.qq.com", nil, 443)
+	if act != ActionDirect || reason != ReasonBuiltinDomain {
+		t.Fatalf("expected Direct, ReasonBuiltinDomain; got %v, %v", act, reason)
+	}
+
+	// 4. Custom IP
+	act, reason = r.RouteWithReason("", net.ParseIP("1.2.3.4"), 80)
+	if act != ActionDirect || reason != ReasonCustomIP {
+		t.Fatalf("expected Direct, ReasonCustomIP; got %v, %v", act, reason)
+	}
+
+	// 5. China IP
+	act, reason = r.RouteWithReason("", net.ParseIP("114.114.114.114"), 53)
+	if act != ActionDirect || reason != ReasonChinaIP {
+		t.Fatalf("expected Direct, ReasonChinaIP; got %v, %v", act, reason)
+	}
+
+	// 6. Default Proxy
+	act, reason = r.RouteWithReason("foreign-host.org", net.ParseIP("8.8.8.8"), 443)
+	if act != ActionProxy || reason != ReasonDefaultProxy {
+		t.Fatalf("expected Proxy, ReasonDefaultProxy; got %v, %v", act, reason)
+	}
+
+	// Verify Stats
+	stats := r.Stats()
+	if stats.DirectPrivateIP != 1 {
+		t.Errorf("expected DirectPrivateIP=1, got %d", stats.DirectPrivateIP)
+	}
+	if stats.DirectCustomDomain != 1 {
+		t.Errorf("expected DirectCustomDomain=1, got %d", stats.DirectCustomDomain)
+	}
+	if stats.DirectBuiltinDomain != 1 {
+		t.Errorf("expected DirectBuiltinDomain=1, got %d", stats.DirectBuiltinDomain)
+	}
+	if stats.DirectCustomIP != 1 {
+		t.Errorf("expected DirectCustomIP=1, got %d", stats.DirectCustomIP)
+	}
+	if stats.DirectChinaIP != 1 {
+		t.Errorf("expected DirectChinaIP=1, got %d", stats.DirectChinaIP)
+	}
+	if stats.ProxyDefault != 1 {
+		t.Errorf("expected ProxyDefault=1, got %d", stats.ProxyDefault)
+	}
+	if stats.TotalDirect != 5 {
+		t.Errorf("expected TotalDirect=5, got %d", stats.TotalDirect)
+	}
+	if stats.TotalProxy != 1 {
+		t.Errorf("expected TotalProxy=1, got %d", stats.TotalProxy)
+	}
+	if stats.TotalBlock != 0 {
+		t.Errorf("expected TotalBlock=0, got %d", stats.TotalBlock)
+	}
+}
+

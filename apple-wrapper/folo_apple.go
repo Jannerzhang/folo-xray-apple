@@ -310,6 +310,12 @@ func FoloXrayNetstackReadPacket(buffer *C.uint8_t, capacity C.size_t, readLength
 	return C.int32_t(code)
 }
 
+//export FoloXrayNetstackCopyDiagnosticsJSON
+func FoloXrayNetstackCopyDiagnosticsJSON() *C.char {
+	return C.CString(getNetstackDiagnosticsJSON())
+}
+
+
 //export FoloXrayValidateConfigJSON
 func FoloXrayValidateConfigJSON(configBytes *C.uint8_t, configLength C.size_t) C.int32_t {
 	engine.Lock()

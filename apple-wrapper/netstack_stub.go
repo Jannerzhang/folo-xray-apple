@@ -25,3 +25,8 @@ func writeNetstackPacket([]byte) int32 {
 func readNetstackPacket([]byte) (int, int32) {
 	return 0, statusInvalidState
 }
+
+func getNetstackDiagnosticsJSON() string {
+	return `{"state":0,"error":"not supported"}`
+}
+

@@ -6,11 +6,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sagernet/gvisor/pkg/buffer"
@@ -73,7 +76,78 @@ type netstackRuntime struct {
 
 	tcpTokens chan struct{}
 	udpTokens chan struct{}
+
+	tcpActive      atomic.Uint64
+	tcpPeak        atomic.Uint64
+	tcpRejected    atomic.Uint64
+	tcpPendingOpen atomic.Uint64
+	tcpHalfClose   atomic.Uint64
+
+	udpActive   atomic.Uint64
+	udpPeak     atomic.Uint64
+	udpRejected atomic.Uint64
+
+	queueDrops atomic.Uint64
 }
+
+func updatePeak(peak *atomic.Uint64, current uint64) {
+	for {
+		prev := peak.Load()
+		if current <= prev {
+			return
+		}
+		if peak.CompareAndSwap(prev, current) {
+			return
+		}
+	}
+}
+
+type NetstackDiagnostics struct {
+	TCPActive      uint64            `json:"tcpActive"`
+	TCPPeak        uint64            `json:"tcpPeak"`
+	TCPRejected    uint64            `json:"tcpRejected"`
+	TCPPendingOpen uint64            `json:"tcpPendingOpen"`
+	TCPHalfClose   uint64            `json:"tcpHalfClose"`
+	UDPActive      uint64            `json:"udpActive"`
+	UDPPeak        uint64            `json:"udpPeak"`
+	UDPRejected    uint64            `json:"udpRejected"`
+	QueueDrops     uint64            `json:"queueDrops"`
+	RouteStats     router.RouteStats `json:"routeStats"`
+	GCCycleCount   uint32            `json:"gcCycleCount"`
+	GCPauseTotalNs uint64            `json:"gcPauseTotalNs"`
+	HeapAllocBytes uint64            `json:"heapAllocBytes"`
+	HeapSysBytes   uint64            `json:"heapSysBytes"`
+	GoroutineCount int               `json:"goroutineCount"`
+}
+
+func (n *netstackRuntime) Diagnostics() NetstackDiagnostics {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	var routeStats router.RouteStats
+	if n.router != nil {
+		routeStats = n.router.Stats()
+	}
+
+	return NetstackDiagnostics{
+		TCPActive:      n.tcpActive.Load(),
+		TCPPeak:        n.tcpPeak.Load(),
+		TCPRejected:    n.tcpRejected.Load(),
+		TCPPendingOpen: n.tcpPendingOpen.Load(),
+		TCPHalfClose:   n.tcpHalfClose.Load(),
+		UDPActive:      n.udpActive.Load(),
+		UDPPeak:        n.udpPeak.Load(),
+		UDPRejected:    n.udpRejected.Load(),
+		QueueDrops:     n.queueDrops.Load(),
+		RouteStats:     routeStats,
+		GCCycleCount:   mem.NumGC,
+		GCPauseTotalNs: mem.PauseTotalNs,
+		HeapAllocBytes: mem.Alloc,
+		HeapSysBytes:   mem.Sys,
+		GoroutineCount: runtime.NumGoroutine(),
+	}
+}
+
 
 type netstackPacketNotification struct {
 	ready chan struct{}
@@ -206,6 +280,9 @@ func (n *netstackRuntime) injectPacket(packet []byte) error {
 		Payload: buffer.MakeWithData(packet),
 	})
 	defer pkt.DecRef()
+	if n.link.NumQueued() >= netstackPacketQueueDepth {
+		n.queueDrops.Add(1)
+	}
 	n.link.InjectInbound(protocol, pkt)
 	return nil
 }
@@ -261,14 +338,24 @@ func (n *netstackRuntime) handleTCP(request *tcp.ForwarderRequest) {
 	select {
 	case n.tcpTokens <- struct{}{}:
 	default:
-		request.Complete(true)
+		n.tcpRejected.Add(1)
+		if request != nil {
+			func() {
+				defer func() { _ = recover() }()
+				request.Complete(true)
+			}()
+		}
 		return
 	}
+
+	active := n.tcpActive.Add(1)
+	updatePeak(&n.tcpPeak, active)
 
 	id := request.ID()
 	var wq waiter.Queue
 	ep, err := request.CreateEndpoint(&wq)
 	if err != nil {
+		n.tcpActive.Add(^uint64(0))
 		<-n.tcpTokens
 		request.Complete(true)
 		return
@@ -278,15 +365,20 @@ func (n *netstackRuntime) handleTCP(request *tcp.ForwarderRequest) {
 	conn := gonet.NewTCPConn(&wq, ep)
 	destination, ok := netstackAddress(id.LocalAddress)
 	if !ok || id.LocalPort == 0 {
+		n.tcpActive.Add(^uint64(0))
 		<-n.tcpTokens
 		_ = conn.Close()
 		return
 	}
 
 	if !n.startWork(func() {
-		defer func() { <-n.tcpTokens }()
+		defer func() {
+			n.tcpActive.Add(^uint64(0))
+			<-n.tcpTokens
+		}()
 		n.proxyTCP(conn, destination, id.LocalPort)
 	}) {
+		n.tcpActive.Add(^uint64(0))
 		<-n.tcpTokens
 		_ = conn.Close()
 	}
@@ -333,6 +425,7 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 	var outbound net.Conn
 	var err error
 
+	n.tcpPendingOpen.Add(1)
 	if action == router.ActionDirect {
 		outbound, err = n.directDialer.DialTCP(n.ctx, destination, port)
 	} else {
@@ -342,6 +435,7 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 		}
 		outbound, err = folotun.DialTCP(n.ctx, n.instance, target, port)
 	}
+	n.tcpPendingOpen.Add(^uint64(0))
 
 	if err != nil {
 		return
@@ -380,22 +474,29 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 
 	// Wait for the first direction to finish
 	<-copyDone
+	n.tcpHalfClose.Add(1)
 	// Unblock and cleanly terminate the other direction after 5s grace period to avoid token exhaustion
 	_ = inbound.SetDeadline(time.Now().Add(5 * time.Second))
 	_ = outbound.SetDeadline(time.Now().Add(5 * time.Second))
 	<-copyDone
+	n.tcpHalfClose.Add(^uint64(0))
 }
 
 func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	select {
 	case n.udpTokens <- struct{}{}:
 	default:
+		n.udpRejected.Add(1)
 		return false
 	}
+
+	active := n.udpActive.Add(1)
+	updatePeak(&n.udpPeak, active)
 
 	id := request.ID()
 	destination, ok := netstackUDPAddress(id.LocalAddress, id.LocalPort)
 	if !ok {
+		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
 		return false
 	}
@@ -403,6 +504,7 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	parsedIP := net.ParseIP(id.LocalAddress.String())
 	action := n.router.Route("", parsedIP, id.LocalPort)
 	if action == router.ActionBlock {
+		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
 		return true
 	}
@@ -410,6 +512,7 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	var wq waiter.Queue
 	ep, err := request.CreateEndpoint(&wq)
 	if err != nil {
+		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
 		return false
 	}
@@ -434,17 +537,22 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	}
 
 	if dialErr != nil {
+		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
 		_ = inbound.Close()
 		return true
 	}
 
 	if !n.startWork(func() {
-		defer func() { <-n.udpTokens }()
+		defer func() {
+			n.udpActive.Add(^uint64(0))
+			<-n.udpTokens
+		}()
 		defer inbound.Close()
 		defer outbound.Close()
 		n.proxyUDP(inbound, outbound, destination)
 	}) {
+		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
 		_ = inbound.Close()
 		_ = outbound.Close()
@@ -607,3 +715,19 @@ func readNetstackPacket(buffer []byte) (int, int32) {
 	}
 	return 0, statusInvalidArgument
 }
+
+func getNetstackDiagnosticsJSON() string {
+	netstack.Lock()
+	runtime := netstack.runtime
+	netstack.Unlock()
+	if runtime == nil {
+		return `{"state":0,"error":"netstack not running"}`
+	}
+	diag := runtime.Diagnostics()
+	payload, err := json.Marshal(diag)
+	if err != nil {
+		return `{"state":0,"error":"marshal failed"}`
+	}
+	return string(payload)
+}
+

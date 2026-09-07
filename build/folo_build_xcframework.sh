@@ -183,6 +183,7 @@ printf '%s\n' \
 	_FoloXrayNetstackStart \
 	_FoloXrayNetstackStop \
 	_FoloXrayNetstackWritePacket \
+	_FoloXrayNetstackCopyDiagnosticsJSON \
 	_FoloXrayPacketBridgeCopyStatsJSON \
 	_FoloXrayPacketBridgeStart \
 	_FoloXrayPacketBridgeState \
