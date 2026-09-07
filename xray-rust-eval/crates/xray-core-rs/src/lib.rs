@@ -178,6 +178,17 @@ pub struct TunQueueOptions {
     pub outbound_queue_depth: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TunResourceBudget {
+    pub max_steady_footprint_bytes: usize,
+    pub max_peak_footprint_bytes: usize,
+    pub max_packet_queue_bytes: usize,
+    pub max_open_connections: usize,
+    pub max_handshake_tasks: usize,
+    pub max_dns_entries: usize,
+    pub max_runtime_tasks: usize,
+}
+
 impl TunRuntimeOptions {
     pub fn with_profile(profile: TunRuntimeProfile) -> Self {
         Self {
@@ -195,8 +206,8 @@ impl TunRuntimeOptions {
             },
             TunRuntimeProfile::FoloIOS => TunQueueOptions {
                 mtu: TUN_MTU,
-                inbound_queue_depth: 512,
-                outbound_queue_depth: 1024,
+                inbound_queue_depth: 64,
+                outbound_queue_depth: 256,
             },
             TunRuntimeProfile::Throughput => TunQueueOptions {
                 mtu: TUN_MTU,
@@ -218,18 +229,34 @@ impl TunRuntimeOptions {
         }
     }
 
-    /// Maximum resident packet bytes shared by the TUN endpoint, smoltcp
-    /// device queues, TCP bridge reservations, and UDP bridge queues.
-    pub fn memory_budget_bytes(self) -> usize {
+    pub fn resource_budget(self) -> TunResourceBudget {
         match self.profile {
-            TunRuntimeProfile::LowMemory => 24 * 1024 * 1024,
-            TunRuntimeProfile::FoloIOS => 32 * 1024 * 1024,
-            TunRuntimeProfile::Mobile | TunRuntimeProfile::MobilePlus => 64 * 1024 * 1024,
-            TunRuntimeProfile::Desktop => 256 * 1024 * 1024,
-            TunRuntimeProfile::Throughput => 512 * 1024 * 1024,
-            TunRuntimeProfile::Default => match DEFAULT_DNS_RUNTIME_PROFILE {
-                TunRuntimeProfile::Mobile => 64 * 1024 * 1024,
-                _ => 256 * 1024 * 1024,
+            TunRuntimeProfile::FoloIOS => TunResourceBudget {
+                max_steady_footprint_bytes: 30 * 1024 * 1024,
+                max_peak_footprint_bytes: 42 * 1024 * 1024,
+                max_packet_queue_bytes: 512 * 1024,
+                max_open_connections: 512,
+                max_handshake_tasks: 48,
+                max_dns_entries: 1024,
+                max_runtime_tasks: 512,
+            },
+            TunRuntimeProfile::LowMemory => TunResourceBudget {
+                max_steady_footprint_bytes: 15 * 1024 * 1024,
+                max_peak_footprint_bytes: 18 * 1024 * 1024,
+                max_packet_queue_bytes: 2 * 1024 * 1024,
+                max_open_connections: 128,
+                max_handshake_tasks: 32,
+                max_dns_entries: 512,
+                max_runtime_tasks: 256,
+            },
+            _ => TunResourceBudget {
+                max_steady_footprint_bytes: 256 * 1024 * 1024,
+                max_peak_footprint_bytes: 512 * 1024 * 1024,
+                max_packet_queue_bytes: 32 * 1024 * 1024,
+                max_open_connections: 2048,
+                max_handshake_tasks: 512,
+                max_dns_entries: 4096,
+                max_runtime_tasks: 4096,
             },
         }
     }
@@ -277,6 +304,8 @@ pub enum CoreError {
     UnauthenticatedLanExposure,
     #[error("invalid fake-IP configuration")]
     InvalidFakeIpConfiguration,
+    #[error("TUN queue profile exceeds its resident byte budget")]
+    InvalidTunResourceBudget,
     #[error("invalid observatory probe URL")]
     InvalidObservatoryProbeUrl,
     #[error("outbound network is not supported")]
@@ -622,10 +651,15 @@ impl Core {
         let outbound_router = Arc::new(OutboundRouter::from_factory(outbound_factory));
         let shutdown = Shutdown::new();
         let tun_queue_options = tun_runtime_options.tun_queue_options();
-        let memory_budget = Arc::new(TunByteBudget::new(
-            tun_runtime_options.memory_budget_bytes(),
-        ));
-        let tun = Arc::new(TunEndpoint::new_with_queue_depths_and_budget(
+        let resource_budget = tun_runtime_options.resource_budget();
+        let queue_bytes = tun_queue_options
+            .inbound_queue_depth
+            .saturating_add(tun_queue_options.outbound_queue_depth)
+            .saturating_mul(tun_queue_options.mtu.max(1));
+        if queue_bytes > resource_budget.max_packet_queue_bytes {
+            return Err(CoreError::InvalidTunResourceBudget);
+        }
+        let tun = Arc::new(TunEndpoint::new_with_queue_depths(
             TunConfig {
                 mtu: tun_queue_options.mtu,
                 queue_depth: tun_queue_options.inbound_queue_depth,

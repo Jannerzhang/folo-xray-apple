@@ -210,6 +210,28 @@ async fn core_applies_low_memory_tun_queue_profile() {
 }
 
 #[tokio::test]
+async fn core_applies_folo_ios_bounded_queue_and_resource_profile() {
+    let options = TunRuntimeOptions::with_profile(TunRuntimeProfile::FoloIOS);
+    let core = Core::with_runtime_dependencies_and_tun_options(
+        tun_runtime_config(),
+        Arc::new(SystemDnsResolver),
+        Arc::new(TransportDialer::system().unwrap()),
+        options,
+    )
+    .unwrap();
+
+    let stats = core.tun().stats().await;
+    let budget = options.resource_budget();
+    assert_eq!(stats.inbound_queue_depth, 64);
+    assert_eq!(stats.outbound_queue_depth, 256);
+    let queue_bytes = (stats.inbound_queue_depth + stats.outbound_queue_depth) as usize * 1500;
+    assert!(queue_bytes <= budget.max_packet_queue_bytes);
+    assert_eq!(budget.max_steady_footprint_bytes, 30 * 1024 * 1024);
+    assert_eq!(budget.max_peak_footprint_bytes, 42 * 1024 * 1024);
+    assert_eq!(budget.max_open_connections, 512);
+}
+
+#[tokio::test]
 async fn core_applies_throughput_tun_queue_profile() {
     let core = Core::with_runtime_dependencies_and_tun_options(
         tun_runtime_config(),
