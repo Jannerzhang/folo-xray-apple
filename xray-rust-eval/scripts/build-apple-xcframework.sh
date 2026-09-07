@@ -23,6 +23,27 @@ TVOS_DEVICE_TARGETS=("aarch64-apple-tvos")
 TVOS_SIMULATOR_TARGETS=("aarch64-apple-tvos-sim" "x86_64-apple-tvos")
 MACOS_TARGETS=("aarch64-apple-darwin" "x86_64-apple-darwin")
 
+# These are the minimum symbols the Apple packet-tunnel adapter calls. Every
+# packaged slice is checked after lipo so a successful archive is also a
+# linkable ABI artifact, not just a correctly-shaped directory.
+REQUIRED_ABI_SYMBOLS=(
+  xray_ffi_version_major
+  xray_ffi_version_minor
+  xray_ffi_capabilities
+  xray_core_new
+  xray_core_load_config_json
+  xray_core_start
+  xray_core_cancel_tun_poll
+  xray_core_stop
+  xray_core_free
+  xray_error_free
+  xray_tun_push_packet
+  xray_tun_push_packets
+  xray_tun_poll_packet
+  xray_tun_poll_packets
+  xray_tun_stats
+)
+
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "missing required command: $1" >&2
@@ -182,6 +203,25 @@ group_libs() {
   combine_staticlibs "$output" "${libs[@]}"
 }
 
+verify_static_library_symbols() {
+  local library="$1"
+  local symbols
+  symbols="$(nm -g "$library" 2>/dev/null || true)"
+  if [[ -z "${symbols//[[:space:]]/}" ]]; then
+    echo "Apple static library has no readable global symbols: $library" >&2
+    exit 1
+  fi
+
+  local symbol
+  for symbol in "${REQUIRED_ABI_SYMBOLS[@]}"; do
+    if ! printf '%s\n' "$symbols" | awk -v expected="$symbol" \
+      '$NF == expected || $NF == "_" expected { found = 1 } END { exit !found }'; then
+      echo "Apple static library is missing required ABI symbol $symbol: $library" >&2
+      exit 1
+    fi
+  done
+}
+
 main() {
   require_command cargo
   require_command rustup
@@ -209,6 +249,12 @@ main() {
   group_libs "$tvos_device_lib" "${TVOS_DEVICE_TARGETS[@]}"
   group_libs "$tvos_simulator_lib" "${TVOS_SIMULATOR_TARGETS[@]}"
   group_libs "$macos_lib" "${MACOS_TARGETS[@]}"
+
+  verify_static_library_symbols "$ios_device_lib"
+  verify_static_library_symbols "$ios_simulator_lib"
+  verify_static_library_symbols "$tvos_device_lib"
+  verify_static_library_symbols "$tvos_simulator_lib"
+  verify_static_library_symbols "$macos_lib"
 
   rm -rf "$OUT_DIR/$XCFRAMEWORK_NAME"
   xcodebuild -create-xcframework \

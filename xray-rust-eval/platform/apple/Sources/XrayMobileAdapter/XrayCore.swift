@@ -7,6 +7,8 @@ public enum XrayCoreError: Error, CustomStringConvertible, CustomNSError, Locali
     case incompatibleFFIMinorVersion(required: UInt32, actual: UInt32)
     case invalidPacketPollSize(Int)
     case invalidPacketBatchLimits(maxPackets: Int, maxPacketBytes: Int)
+    case packetBatchCountTooLarge(requested: Int, maximum: Int)
+    case invalidPacketBatchPacket(index: Int, length: Int)
     case packetBatchSizeOverflow(maxPackets: Int, maxPacketBytes: Int)
     case packetBatchTooLarge(requestedBytes: Int, maximumBytes: Int)
     case missingHandle
@@ -25,6 +27,10 @@ public enum XrayCoreError: Error, CustomStringConvertible, CustomNSError, Locali
             return "packet poll buffer size must be between 1 and 65535 bytes, got \(maxBytes)"
         case let .invalidPacketBatchLimits(maxPackets, maxPacketBytes):
             return "packet batch limits must be positive, got maxPackets=\(maxPackets) maxPacketBytes=\(maxPacketBytes)"
+        case let .packetBatchCountTooLarge(requested, maximum):
+            return "packet batch contains \(requested) packets, exceeding the \(maximum)-packet limit"
+        case let .invalidPacketBatchPacket(index, length):
+            return "packet batch item \(index) has invalid length \(length)"
         case let .packetBatchSizeOverflow(maxPackets, maxPacketBytes):
             return "packet batch size overflows Int for maxPackets=\(maxPackets) maxPacketBytes=\(maxPacketBytes)"
         case let .packetBatchTooLarge(requestedBytes, maximumBytes):
@@ -54,6 +60,10 @@ public enum XrayCoreError: Error, CustomStringConvertible, CustomNSError, Locali
             return 2
         case .invalidPacketBatchLimits:
             return 3
+        case .packetBatchCountTooLarge:
+            return 10
+        case .invalidPacketBatchPacket:
+            return 11
         case .packetBatchSizeOverflow:
             return 4
         case .packetBatchTooLarge:
@@ -522,10 +532,10 @@ final class XrayCoreCallGate: @unchecked Sendable {
         return try body()
     }
 
-    func withLifecycle<T>(_ body: () throws -> T) rethrows -> T {
+    func withLifecycle<T>(cancel: (() throws -> Void)? = nil, _ body: () throws -> T) rethrows -> T {
         condition.lock()
         waitingLifecycleCalls += 1
-        while lifecycleCallActive || activeDataPathCalls > 0 {
+        while lifecycleCallActive {
             condition.wait()
         }
         waitingLifecycleCalls -= 1
@@ -538,6 +548,24 @@ final class XrayCoreCallGate: @unchecked Sendable {
             condition.broadcast()
             condition.unlock()
         }
+        try cancel?()
+        condition.lock()
+        while activeDataPathCalls > 0 {
+            condition.wait()
+        }
+        condition.unlock()
+        return try body()
+    }
+
+    /// The cancellation lane is allowed to run while a data-path poll is
+    /// blocked. It only waits for an active lifecycle body, so stop can wake
+    /// the poll before waiting for the data-path call to drain.
+    func withControl<T>(_ body: () throws -> T) rethrows -> T {
+        condition.lock()
+        while lifecycleCallActive {
+            condition.wait()
+        }
+        condition.unlock()
         return try body()
     }
 }
@@ -631,6 +659,18 @@ public struct XrayTunStatsSnapshot: Equatable, Sendable {
     public let tunFdReadLoopExits: UInt64
     public let tunFdWriteLoopExits: UInt64
     public let tunFdTransientIoErrors: UInt64
+}
+
+public struct XrayPacketBatchPushResult: Equatable, Sendable {
+    public let status: Int32
+    public let acceptedCount: Int
+
+    public init(status: Int32, acceptedCount: Int) {
+        self.status = status
+        self.acceptedCount = acceptedCount
+    }
+
+    public var isComplete: Bool { status == XRAY_STATUS_OK.rawValue }
 }
 
 public extension XrayTunStatsSnapshot {
@@ -770,10 +810,11 @@ private extension XrayTcpSlowFlowKind {
 }
 
 public final class XrayCore: @unchecked Sendable {
-    static let expectedFFIMajorVersion: UInt32 = 1
-    static let minimumFFIMinorVersion: UInt32 = 1
+    static let expectedFFIMajorVersion: UInt32 = UInt32(XRAY_FFI_ABI_MAJOR)
+    static let minimumFFIMinorVersion: UInt32 = UInt32(XRAY_FFI_ABI_MINOR)
     static let maximumPolledPacketBytes = 65_535
-    static let maximumPacketBatchBytes = 4 * 1_024 * 1_024
+    static let maximumPacketBatchBytes = Int(XRAY_TUN_BATCH_MAX_BYTES)
+    static let maximumPacketBatchPackets = Int(XRAY_TUN_BATCH_MAX_PACKETS)
 
     private let callGate = XrayCoreCallGate()
     private var handle: OpaquePointer?
@@ -1014,7 +1055,11 @@ public final class XrayCore: @unchecked Sendable {
     }
 
     deinit {
-        callGate.withLifecycle {
+        callGate.withLifecycle(cancel: { [handle] in
+            if let handle {
+                _ = xray_core_cancel_tun_poll(handle, nil)
+            }
+        }) {
             dataPathEnabled = false
             if let handle {
                 self.handle = nil
@@ -1044,7 +1089,10 @@ public final class XrayCore: @unchecked Sendable {
 
     public func stop() throws {
         do {
-            try withLifecycleHandle { handle in
+            try withLifecycleHandle(cancel: { handle in
+                var error: OpaquePointer?
+                try check(xray_core_cancel_tun_poll(handle, &error), error: error)
+            }) { handle in
                 var error: OpaquePointer?
                 XrayMobileLog.info("Core", "Stopping core")
                 dataPathEnabled = false
@@ -1170,21 +1218,35 @@ public final class XrayCore: @unchecked Sendable {
         }
     }
 
-    public func pushPackets(_ packets: [Data]) throws {
-        guard !packets.isEmpty else { return }
-        try withDataPathHandle { handle in
+    @discardableResult
+    public func pushPackets(_ packets: [Data]) throws -> XrayPacketBatchPushResult {
+        guard !packets.isEmpty else {
+            return XrayPacketBatchPushResult(status: XRAY_STATUS_OK.rawValue, acceptedCount: 0)
+        }
+        guard packets.count <= Self.maximumPacketBatchPackets else {
+            throw XrayCoreError.packetBatchCountTooLarge(
+                requested: packets.count,
+                maximum: Self.maximumPacketBatchPackets
+            )
+        }
+        for (index, packet) in packets.enumerated() {
+            guard !packet.isEmpty, packet.count <= 1_500 else {
+                throw XrayCoreError.invalidPacketBatchPacket(index: index, length: packet.count)
+            }
+        }
+        return try withDataPathHandle { handle in
             var error: OpaquePointer?
             var pointers: [UnsafePointer<UInt8>?] = []
             var lengths: [Int] = []
             pointers.reserveCapacity(packets.count)
             lengths.reserveCapacity(packets.count)
 
-            func withPointers(index: Int) throws {
+            func withPointers(index: Int) throws -> XrayPacketBatchPushResult {
                 if index == packets.count {
-                    pointers.withUnsafeBufferPointer { ptrBuf in
+                    return try pointers.withUnsafeBufferPointer { ptrBuf in
                         lengths.withUnsafeBufferPointer { lenBuf in
                             var pushedCount = 0
-                            _ = xray_tun_push_packets(
+                            let status = xray_tun_push_packets(
                                 handle,
                                 ptrBuf.baseAddress,
                                 lenBuf.baseAddress,
@@ -1192,19 +1254,62 @@ public final class XrayCore: @unchecked Sendable {
                                 &pushedCount,
                                 &error
                             )
+                            let result = XrayPacketBatchPushResult(
+                                status: status.rawValue,
+                                acceptedCount: max(0, min(pushedCount, packets.count))
+                            )
+                            if status == XRAY_STATUS_TUN_ERROR {
+                                if let error { xray_error_free(error) }
+                                error = nil
+                                return result
+                            }
+                            try check(status, error: error)
+                            return result
                         }
                     }
-                    try check(error == nil ? XRAY_STATUS_OK : XrayStatus(rawValue: 1), error: error)
-                    return
                 }
-                try packets[index].withUnsafeBytes { rawBuffer in
+                return try packets[index].withUnsafeBytes { rawBuffer in
                     pointers.append(rawBuffer.bindMemory(to: UInt8.self).baseAddress)
                     lengths.append(packets[index].count)
-                    try withPointers(index: index + 1)
+                    return try withPointers(index: index + 1)
                 }
             }
-            try withPointers(index: 0)
+            return try withPointers(index: 0)
         }
+    }
+
+    /// Retries only the suffix rejected by the bounded TUN queue. The retry
+    /// count is deliberately finite; callers receive an error instead of an
+    /// unbounded loop when the queue never drains.
+    public func pushPacketsReliably(
+        _ packets: [Data],
+        maximumAttempts: Int = 8
+    ) throws {
+        guard maximumAttempts > 0 else {
+            throw XrayCoreError.invalidPacketBatchLimits(
+                maxPackets: packets.count,
+                maxPacketBytes: maximumAttempts
+            )
+        }
+        var offset = 0
+        for _ in 0..<maximumAttempts {
+            if offset == packets.count { return }
+            let result = try pushPackets(Array(packets[offset...]))
+            let accepted = max(0, min(result.acceptedCount, packets.count - offset))
+            offset += accepted
+            if offset == packets.count { return }
+            guard result.status == XRAY_STATUS_TUN_ERROR.rawValue else {
+                throw XrayCoreError.status(
+                    code: XrayStatus(rawValue: result.status),
+                    message: "batch push accepted \(offset) of \(packets.count) packets"
+                )
+            }
+            Thread.yield()
+        }
+        throw XrayCoreError.status(
+            code: XRAY_STATUS_TUN_ERROR,
+            message: "batch push did not drain after \(maximumAttempts) attempts"
+        )
     }
 
     public func cancelTunPoll() throws {
@@ -1275,7 +1380,7 @@ public final class XrayCore: @unchecked Sendable {
                 xray_tun_poll_packets(
                     handle,
                     bufferPointer.baseAddress,
-                    bufferPointer.count,
+                        bufferPointer.count,
                     lengthsPointer.baseAddress,
                     storage.maxPackets,
                     &packetCount,
@@ -1707,8 +1812,27 @@ public final class XrayCore: @unchecked Sendable {
         }
     }
 
-    private func withLifecycleHandle<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
-        try callGate.withLifecycle {
+    private func withLifecycleHandle<T>(
+        cancel: ((OpaquePointer) throws -> Void)? = nil,
+        _ body: (OpaquePointer) throws -> T
+    ) throws -> T {
+        try callGate.withLifecycle(cancel: {
+            if let cancel {
+                guard let handle else {
+                    throw XrayCoreError.missingHandle
+                }
+                try cancel(handle)
+            }
+        }) {
+            guard let handle else {
+                throw XrayCoreError.missingHandle
+            }
+            return try body(handle)
+        }
+    }
+
+    private func withControlHandle<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
+        try callGate.withControl {
             guard let handle else {
                 throw XrayCoreError.missingHandle
             }

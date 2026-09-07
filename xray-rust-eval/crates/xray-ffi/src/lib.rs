@@ -45,6 +45,9 @@ pub const XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT: u64 = 1 << 14;
 pub const XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE: u64 = 1 << 15;
 pub const XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH: u64 = 1 << 16;
 
+pub const XRAY_TUN_BATCH_MAX_PACKETS: usize = 256;
+pub const XRAY_TUN_BATCH_MAX_BYTES: usize = 4 * 1024 * 1024;
+
 pub const XRAY_FFI_CAPABILITIES: u64 = XRAY_FFI_CAPABILITY_CONFIG_WARNINGS
     | XRAY_FFI_CAPABILITY_GEODATA_SEARCH
     | XRAY_FFI_CAPABILITY_SOCKET_PROTECTION
@@ -2346,10 +2349,24 @@ unsafe fn xray_tun_push_packets_inner(
         }
         return Err(XrayStatus::NullArgument);
     }
+    if count > XRAY_TUN_BATCH_MAX_PACKETS {
+        unsafe {
+            set_error(
+                error,
+                XrayStatus::InvalidArgument,
+                format!(
+                    "packet batch count {count} exceeds maximum {}",
+                    XRAY_TUN_BATCH_MAX_PACKETS
+                ),
+            );
+        }
+        return Err(XrayStatus::InvalidArgument);
+    }
 
     let core = unsafe { loaded_core(handle, error)? };
     let mtu = core.tun().mtu();
 
+    let mut total_bytes = 0usize;
     let mut batch = Vec::with_capacity(count);
     for i in 0..count {
         let pkt_ptr = unsafe { *packets.add(i) };
@@ -2365,12 +2382,29 @@ unsafe fn xray_tun_push_packets_inner(
             }
             return Err(XrayStatus::NullArgument);
         }
-        if pkt_len > mtu || pkt_len > isize::MAX as usize {
+        if pkt_len == 0 || pkt_len > mtu || pkt_len > isize::MAX as usize {
             unsafe {
                 set_error(
                     error,
                     XrayStatus::InvalidArgument,
                     format!("packet {i} length {pkt_len} exceeds mtu {mtu}"),
+                );
+            }
+            return Err(XrayStatus::InvalidArgument);
+        }
+        total_bytes = total_bytes.checked_add(pkt_len).ok_or_else(|| unsafe {
+            set_error(error, XrayStatus::InvalidArgument, "packet batch byte count overflow");
+            XrayStatus::InvalidArgument
+        })?;
+        if total_bytes > XRAY_TUN_BATCH_MAX_BYTES {
+            unsafe {
+                set_error(
+                    error,
+                    XrayStatus::InvalidArgument,
+                    format!(
+                        "packet batch bytes {total_bytes} exceeds maximum {}",
+                        XRAY_TUN_BATCH_MAX_BYTES
+                    ),
                 );
             }
             return Err(XrayStatus::InvalidArgument);

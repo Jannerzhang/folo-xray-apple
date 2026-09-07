@@ -8,9 +8,11 @@ use xray_ffi::{
     xray_core_cancel_tun_poll, xray_core_free, xray_core_load_config_json, xray_core_new,
     xray_core_set_tun_runtime_profile, xray_core_start, xray_core_stop,
     xray_error_free, xray_ffi_capabilities, xray_ffi_version_major, xray_ffi_version_minor,
-    xray_tun_poll_packets, xray_tun_push_packets, XrayStatus, XrayTunRuntimeProfile,
+    xray_tun_poll_packets, xray_tun_push_packet, xray_tun_push_packets, XrayStatus,
+    XrayTunRuntimeProfile,
     XRAY_FFI_ABI_MAJOR, XRAY_FFI_ABI_MINOR, XRAY_FFI_CAPABILITY_TUN_BATCH_POLL,
     XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH,
+    XRAY_TUN_BATCH_MAX_PACKETS,
 };
 
 fn internet_checksum(data: &[u8]) -> u16 {
@@ -222,6 +224,79 @@ fn abi_v2_tun_push_packets_argument_validation() {
     assert_eq!(status, XrayStatus::Ok);
     assert_eq!(pushed_count, 0);
 
+    unsafe { xray_core_free(core) };
+}
+
+#[test]
+fn abi_v2_batch_count_is_rejected_before_untrusted_allocation() {
+    let mut err = std::ptr::null_mut();
+    let core = unsafe { xray_core_new(&mut err) };
+    assert!(!core.is_null());
+
+    let raw = CString::new(tun_config_minimal()).unwrap();
+    assert_eq!(
+        unsafe { xray_core_load_config_json(core, raw.as_ptr(), &mut err) },
+        XrayStatus::Ok
+    );
+
+    let packet = ipv4_icmp_echo_request([10, 0, 0, 2], [10, 0, 0, 1], 1, 1, b"bounded");
+    let pointers = vec![packet.as_ptr(); XRAY_TUN_BATCH_MAX_PACKETS + 1];
+    let lengths = vec![packet.len(); XRAY_TUN_BATCH_MAX_PACKETS + 1];
+    let mut pushed = 99usize;
+    let status = unsafe {
+        xray_tun_push_packets(
+            core,
+            pointers.as_ptr(),
+            lengths.as_ptr(),
+            pointers.len(),
+            &mut pushed,
+            &mut err,
+        )
+    };
+    assert_eq!(status, XrayStatus::InvalidArgument);
+    assert_eq!(pushed, 0);
+    unsafe { xray_error_free(err) };
+    unsafe { xray_core_free(core) };
+}
+
+#[test]
+fn abi_v2_batch_push_reports_only_the_accepted_prefix_when_queue_is_full() {
+    let mut err = std::ptr::null_mut();
+    let core = unsafe { xray_core_new(&mut err) };
+    assert!(!core.is_null());
+    let raw = CString::new(tun_config_minimal()).unwrap();
+    assert_eq!(
+        unsafe { xray_core_load_config_json(core, raw.as_ptr(), &mut err) },
+        XrayStatus::Ok
+    );
+
+    let packet = ipv4_icmp_echo_request([10, 0, 0, 2], [10, 0, 0, 1], 2, 1, b"queue");
+    for index in 0..1023 {
+        assert_eq!(
+            unsafe {
+                xray_tun_push_packet(core, packet.as_ptr(), packet.len(), &mut err)
+            },
+            XrayStatus::Ok,
+            "prefill packet {index}"
+        );
+    }
+
+    let pointers = [packet.as_ptr(), packet.as_ptr()];
+    let lengths = [packet.len(), packet.len()];
+    let mut pushed = 0usize;
+    let status = unsafe {
+        xray_tun_push_packets(
+            core,
+            pointers.as_ptr(),
+            lengths.as_ptr(),
+            2,
+            &mut pushed,
+            &mut err,
+        )
+    };
+    assert_eq!(status, XrayStatus::TunError);
+    assert_eq!(pushed, 1);
+    unsafe { xray_error_free(err) };
     unsafe { xray_core_free(core) };
 }
 
