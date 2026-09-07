@@ -4,6 +4,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Generated from the Rust xray-ffi ABI contract. Keep these values in lockstep
+ * with XRAY_FFI_ABI_MAJOR/MINOR in crates/xray-ffi/src/lib.rs. */
+#define XRAY_FFI_ABI_MAJOR 2
+#define XRAY_FFI_ABI_MINOR 0
+#define XRAY_TUN_BATCH_MAX_PACKETS 256
+#define XRAY_TUN_BATCH_MAX_BYTES (4u * 1024u * 1024u)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

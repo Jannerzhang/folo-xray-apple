@@ -29,6 +29,10 @@ fn ffi_header_declares_lifecycle_error_and_tun_abi() {
         "XrayCoreHandle",
         "XrayError",
         "XrayFfiCapability",
+        "XRAY_FFI_ABI_MAJOR",
+        "XRAY_FFI_ABI_MINOR",
+        "XRAY_TUN_BATCH_MAX_PACKETS",
+        "XRAY_TUN_BATCH_MAX_BYTES",
         "xray_ffi_version_major",
         "xray_ffi_version_minor",
         "xray_ffi_capabilities",
@@ -47,6 +51,7 @@ fn ffi_header_declares_lifecycle_error_and_tun_abi() {
         "xray_core_outbound_accounting_snapshot_json",
         "xray_core_close_connection",
         "xray_core_start",
+        "xray_core_cancel_tun_poll",
         "xray_core_stop",
         "xray_core_free",
         "XraySocketProtectCallback",
@@ -64,6 +69,7 @@ fn ffi_header_declares_lifecycle_error_and_tun_abi() {
         "xray_error_message",
         "xray_error_free",
         "xray_tun_push_packet",
+        "xray_tun_push_packets",
         "xray_tun_poll_packet",
         "xray_tun_poll_packets",
         "xray_tun_poll_tcp_flow_summary_event",
@@ -168,8 +174,8 @@ fn apple_adapter_declares_packet_tunnel_pump() {
     assert!(core.contains("xray_ffi_version_major()"));
     assert!(core.contains("xray_ffi_version_minor()"));
     assert!(core.contains("xray_ffi_capabilities()"));
-    assert!(core.contains("expectedFFIMajorVersion: UInt32 = 1"));
-    assert!(core.contains("minimumFFIMinorVersion: UInt32 = 1"));
+    assert!(core.contains("expectedFFIMajorVersion: UInt32 = UInt32(XRAY_FFI_ABI_MAJOR)"));
+    assert!(core.contains("minimumFFIMinorVersion: UInt32 = UInt32(XRAY_FFI_ABI_MINOR)"));
     assert!(core.contains("public struct XrayFFIVersion"));
     assert!(core.contains("public struct XrayFFICapabilities: OptionSet"));
     assert!(core.contains("public struct XrayFFIInfo"));
@@ -1012,10 +1018,60 @@ fn compile_c_harness() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+
+    let library = build_native_staticlib(&root);
+    let executable_path = out_dir.join("xray_ffi_harness");
+    let compiler = std::env::var("CC").unwrap_or_else(|_| "cc".to_owned());
+    let link = Command::new(compiler)
+        .arg(&object_path)
+        .arg(&library)
+        .arg("-framework")
+        .arg("CoreFoundation")
+        .arg("-framework")
+        .arg("Security")
+        .arg("-lpthread")
+        .arg("-ldl")
+        .arg("-lm")
+        .arg("-o")
+        .arg(&executable_path)
+        .output()
+        .expect("link C harness against native xray-ffi staticlib");
+    assert!(
+        link.status.success(),
+        "C harness link failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&link.stdout),
+        String::from_utf8_lossy(&link.stderr)
+    );
 }
 
 fn assert_native_staticlib_exports_symbols() {
     let root = workspace_root();
+    let library = build_native_staticlib(&root);
+
+    let symbols = Command::new("nm")
+        .arg("-g")
+        .arg(&library)
+        .output()
+        .expect("run nm for native xray-ffi staticlib");
+
+    // `nm` exits nonzero when prebuilt std members carry bitcode newer than
+    // its LLVM reader; the crate's own machine-code members still get listed,
+    // so judge the scan by its output rather than the exit status.
+    let stdout = String::from_utf8_lossy(&symbols.stdout);
+    assert!(
+        !stdout.trim().is_empty(),
+        "native xray-ffi nm symbol scan produced no output\nstderr:\n{}",
+        String::from_utf8_lossy(&symbols.stderr)
+    );
+    for symbol in EXPORTED_SYMBOLS {
+        assert!(
+            contains_exported_symbol(&stdout, symbol),
+            "native staticlib missing exported symbol `{symbol}`"
+        );
+    }
+}
+
+fn build_native_staticlib(root: &Path) -> PathBuf {
     // `lto = "thin"` archives contain LLVM bitcode objects that the host
     // toolchain's `nm` may not be able to read when its LLVM is older than
     // rustc's; scan a non-LTO build so members are plain machine objects.
@@ -1044,27 +1100,7 @@ fn assert_native_staticlib_exports_symbols() {
         library.display()
     );
 
-    let symbols = Command::new("nm")
-        .arg("-g")
-        .arg(&library)
-        .output()
-        .expect("run nm for native xray-ffi staticlib");
-
-    // `nm` exits nonzero when prebuilt std members carry bitcode newer than
-    // its LLVM reader; the crate's own machine-code members still get listed,
-    // so judge the scan by its output rather than the exit status.
-    let stdout = String::from_utf8_lossy(&symbols.stdout);
-    assert!(
-        !stdout.trim().is_empty(),
-        "native xray-ffi nm symbol scan produced no output\nstderr:\n{}",
-        String::from_utf8_lossy(&symbols.stderr)
-    );
-    for symbol in EXPORTED_SYMBOLS {
-        assert!(
-            contains_exported_symbol(&stdout, symbol),
-            "native staticlib missing exported symbol `{symbol}`"
-        );
-    }
+    library
 }
 
 fn assert_command_success(description: &str, output: &std::process::Output) {
@@ -1106,6 +1142,7 @@ const EXPORTED_SYMBOLS: &[&str] = &[
     "xray_core_close_connection",
     "xray_core_start",
     "xray_core_stop",
+    "xray_core_cancel_tun_poll",
     "xray_core_free",
     "xray_core_set_socket_protect_callback",
     "xray_core_set_file_logging",
@@ -1118,6 +1155,7 @@ const EXPORTED_SYMBOLS: &[&str] = &[
     "xray_error_message",
     "xray_error_free",
     "xray_tun_push_packet",
+    "xray_tun_push_packets",
     "xray_tun_poll_packet",
     "xray_tun_poll_packets",
     "xray_tun_poll_tcp_flow_summary_event",
@@ -1390,6 +1428,10 @@ fn apple_xcframework_script_packages_static_libraries_with_headers() {
     assert!(script.contains("-library \"$macos_lib\" -headers \"$HEADER_DIR\""));
     assert!(script.contains("validate_headers"));
     assert!(script.contains("verify_xcframework_layout"));
+    assert!(script.contains("REQUIRED_ABI_SYMBOLS"));
+    assert!(script.contains("verify_static_library_symbols"));
+    assert!(script.contains("xray_core_cancel_tun_poll"));
+    assert!(script.contains("xray_tun_push_packets"));
     assert!(script.contains("AvailableLibraries:$index:LibraryPath"));
     assert!(script.contains("AvailableLibraries:$index:HeadersPath"));
     assert!(script.contains("invalid Apple XCFramework slice count: expected 5"));
