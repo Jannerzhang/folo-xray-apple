@@ -5,6 +5,7 @@ auditDate: 2026-09-07
 policy: FOLO_LICENSE_POLICY_REFERENCE.md
 policySha256: f1eed2759670c88ea089cc4e653617fe7bc69fa6633cf416579060d59515b2a0
 sourceLock: xray-rust-eval-source-lock.yml
+artifactManifest: xray-rust-artifact-manifest-v1.yml
 sbom: xray-rust-dependency-sbom-v1.json
 
 scope:
@@ -13,10 +14,10 @@ scope:
   graphCommand: "cargo tree --manifest-path xray-rust-eval/Cargo.toml --locked --package xray-ffi --target aarch64-apple-ios --edges normal"
   graphSha256: c08fdaa0a3f8598fe02412e20aac494c12db0b25e4a67d515250f217571d3235
   metadataCommand: "cargo metadata --manifest-path xray-rust-eval/Cargo.toml --locked --format-version 1"
-  metadataSha256: 3f0b570b6da843684bef520312196de9734b9f2476bc10c94ed6b8712ed62450
-  sbomSha256: 77bbd839ef57b3a4d39ff1b19ef877e5e5661cc70dbdce69ee34908e1d0be801
-  sourceCommit: 8e56dccb9c487de0d76b640182ad267805ebb743
-  sourceTree: be4680a9ecc5628baf6e5530a46682d8bb5c0c06
+  metadataSha256: 102aa1114e55b821ec0015fa5c7f2b992d79c8d93b907e324c3019a311151a9b
+  sbomSha256: df2e36a9cfb1c91a8523bf551f25d4a5d38794b8c30a7e706c78b93bc852032d
+  sourceCommit: 42f3c7da2ddaf2a24910c67ffc7c77e8d8069e87
+  sourceTree: d755fd3d73062605d4e7c16bf06e76fbb4b0e0c3
 
 approved:
   - "MIT/BSD-2-Clause/BSD-3-Clause/ISC/Apache-2.0"

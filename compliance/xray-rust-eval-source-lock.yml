@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 schemaVersion: 1
 status: candidate-only
-reviewDate: 2026-09-04
+reviewDate: 2026-09-07
 purpose: "Immutable source and SDK identity for the xray-rust replacement evaluation"
 
 core:
@@ -18,7 +18,8 @@ core:
     spdx: MPL-2.0
     file: xray-rust-eval/LICENSE
   ffi:
-    abiMajor: 1
+    abiMajor: 2
+    abiMinor: 0
     headerSha256: 372a5539756df970583b58c3a077363e23dc55b7445b21ecef52ce79b814f952
 
 mobile:
@@ -42,9 +43,9 @@ mobile:
     macosDeploymentTarget: 11.0
 
 crossRepository:
-  iosCommit: 13de7df48decd0b114abc7bfdd37a5c1390b4d54
-  coreCommit: 2ecc15a2bea87b6000f79e653bd28f62e3d8d722
-  note: "The lock records the final verified audit-fix-07 pair; the Rust source identity remains the upstream snapshot plus explicit evaluation commits."
+  iosCommit: e0832fcd1ea0e182c6e459c5201c9bc563ba3e0c
+  coreCommit: 42f3c7da2ddaf2a24910c67ffc7c77e8d8069e87
+  note: "The lock records the latest staged App/Core evaluation pair; upstream source identity remains separately pinned above."
 
 reviewFindings:
   - "The v0.5.0 mobile tag is annotated; peeled commit is recorded separately."

@@ -1,22 +1,17 @@
 schemaVersion: 1
 evaluation: xray-rust-long-term-replacement
-date: 2026-09-04
+date: 2026-09-07
 source:
-  coreCommit: 549807d621fadc618e6d0bab75f9e58ef35a7fc1
+  coreCommit: 42f3c7da2ddaf2a24910c67ffc7c77e8d8069e87
   mobileCommit: 377bc2523a97b4faf3b039b65dce2a94381c2e6e
   mobileAppleArtifactSHA256: 4d2d72fbbb44ebcde2d1fa129ff87e2b055933597656b35cb096bcdeef7ed84c
+  abiMajor: 2
+  abiMinor: 0
+  artifactManifest: xray-rust-artifact-manifest-v1.yml
 decision: no-go
 productionCore: unchanged
 integration: not-approved
 blockingFindings:
-  - id: runtime-license
-    detail: webpki-roots-1.0.9 uses CDLA-Permissive-2.0 in the iOS normal runtime graph
-  - id: runtime-license
-    detail: zlib-rs-0.6.7 uses Zlib in the iOS normal runtime graph
-  - id: rust-toolchain
-    detail: Rust 1.96.0 is not installed and this evaluation never auto-installs it
-  - id: apple-matrix
-    detail: x86_64 iOS target and required tvOS nightly are unavailable locally
   - id: packetflow-boundary
     detail: candidate mobile provider contains private utun descriptor discovery and is not consumed
   - id: artifact
