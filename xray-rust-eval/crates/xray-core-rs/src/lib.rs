@@ -20,7 +20,7 @@ use xray_transport::{
     NameServerPolicy, NameServerTransport, SocketProtector, SystemDnsResolver, TransportDialer,
     TransportError,
 };
-use xray_tun::{TunByteBudget, TunConfig, TunEndpoint};
+use xray_tun::{TunConfig, TunEndpoint};
 
 mod connection;
 mod debug_log;
@@ -666,7 +666,6 @@ impl Core {
             },
             tun_queue_options.inbound_queue_depth,
             tun_queue_options.outbound_queue_depth,
-            memory_budget,
         ));
 
         Ok(Self {
