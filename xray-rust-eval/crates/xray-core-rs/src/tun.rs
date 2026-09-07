@@ -99,6 +99,8 @@ const TCP_FLOW_SUMMARY_MILESTONE_BYTES: u64 = 1024 * 1024;
 const UDP_SLOW_FLOW_THRESHOLD_MS: u64 = 500;
 const UDP_RESPONSE_GAP_THRESHOLD_MS: u64 = 500;
 const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const QUIC_INITIAL_REASSEMBLY_MAX_DATAGRAMS: usize = 4;
+const QUIC_INITIAL_REASSEMBLY_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[path = "tun_dns.rs"]
 mod dns_proxy;
@@ -2762,8 +2764,10 @@ fn cleanup_closed_tcp_flows(
 
     for handle in closed {
         if let Some(flow) = flows.remove(&handle) {
-            flow_budget_state
-                .record_pending_remote_remove_flow_for_handle(Some(handle), flow.pending_remote_bytes);
+            flow_budget_state.record_pending_remote_remove_flow_for_handle(
+                Some(handle),
+                flow.pending_remote_bytes,
+            );
         }
         sockets.remove(handle);
     }
@@ -4214,7 +4218,15 @@ async fn bridge_udp_flow(
             .await;
         return;
     };
-    let sniffed_target = sniff_tun_udp_target(&context, &target, provenance, &first_payload);
+    let (sniffed_target, pending_payloads) = sniff_tun_udp_target_with_reassembly(
+        &context,
+        &target,
+        provenance,
+        &first_payload,
+        &mut from_stack,
+        &mut shutdown,
+    )
+    .await;
     let sniffed_protocol = sniffed_target.sniffed_protocol;
     let route_target = sniffed_target.route_target;
     let dial_target = sniffed_target.dial_target;
@@ -4298,6 +4310,7 @@ async fn bridge_udp_flow(
                 from_stack,
                 shutdown,
                 first_payload,
+                pending_payloads,
                 dns_permit,
                 connection,
                 connection_close,
@@ -4328,6 +4341,12 @@ async fn bridge_udp_flow(
                     });
                 }
                 context.tun.record_udp_vision_udp443_rejection();
+                if is_quic_initial_datagram(&first_payload) {
+                    context.tun.record_udp_quic_blocked_packet(
+                        crate::debug_log::target_label(&dial_target),
+                        first_payload.len(),
+                    );
+                }
                 let _ = context
                     .stack_tx
                     .send(StackEvent::UdpClosed { key, generation })
@@ -4348,6 +4367,7 @@ async fn bridge_udp_flow(
                 shutdown,
                 udp_timing_start,
                 first_payload,
+                pending_payloads,
                 connection,
                 connection_close,
             )
@@ -4364,6 +4384,7 @@ async fn bridge_udp_flow(
                 shutdown,
                 udp_timing_start,
                 first_payload,
+                pending_payloads,
                 connection,
                 connection_close,
             )
@@ -4385,6 +4406,7 @@ async fn bridge_udp_dns_outbound_flow(
     mut from_stack: mpsc::Receiver<Bytes>,
     mut shutdown: watch::Receiver<bool>,
     first_payload: Bytes,
+    mut pending_payloads: VecDeque<Bytes>,
     _dns_permit: OwnedSemaphorePermit,
     connection: ConnectionLease,
     mut connection_close: watch::Receiver<bool>,
@@ -4401,21 +4423,25 @@ async fn bridge_udp_dns_outbound_flow(
         let payload = match pending_payload.take() {
             Some(payload) => payload,
             None => {
-                tokio::select! {
-                    biased;
-                    () = wait_for_connection_close(&mut connection_close) => break,
-                    changed = shutdown.changed() => {
-                        if changed.is_err() || *shutdown.borrow() {
-                            break;
+                if let Some(payload) = pending_payloads.pop_front() {
+                    payload
+                } else {
+                    tokio::select! {
+                        biased;
+                        () = wait_for_connection_close(&mut connection_close) => break,
+                        changed = shutdown.changed() => {
+                            if changed.is_err() || *shutdown.borrow() {
+                                break;
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-                    () = sleep(idle_timeout) => break,
-                    payload = from_stack.recv() => {
-                        let Some(payload) = payload else {
-                            break;
-                        };
-                        payload
+                        () = sleep(idle_timeout) => break,
+                        payload = from_stack.recv() => {
+                            let Some(payload) = payload else {
+                                break;
+                            };
+                            payload
+                        }
                     }
                 }
             }
@@ -4481,6 +4507,17 @@ async fn read_first_tun_udp_payload(
     }
 }
 
+async fn next_udp_payload(
+    pending_payloads: &mut VecDeque<Bytes>,
+    from_stack: &mut mpsc::Receiver<Bytes>,
+) -> Option<Bytes> {
+    if let Some(payload) = pending_payloads.pop_front() {
+        Some(payload)
+    } else {
+        from_stack.recv().await
+    }
+}
+
 struct TunUdpSniffedTarget {
     route_target: Target,
     dial_target: Target,
@@ -4541,6 +4578,124 @@ fn sniff_tun_udp_target(
     TunUdpSniffedTarget::from_sniffed(target, provenance, Some(sniffed))
 }
 
+async fn sniff_tun_udp_target_with_reassembly(
+    context: &TunRuntimeContext,
+    target: &Target,
+    provenance: FakeIpTargetProvenance,
+    first_payload: &[u8],
+    from_stack: &mut mpsc::Receiver<Bytes>,
+    shutdown: &mut watch::Receiver<bool>,
+) -> (TunUdpSniffedTarget, VecDeque<Bytes>) {
+    let mut pending_payloads = VecDeque::new();
+    if provenance == FakeIpTargetProvenance::Mapped {
+        return (
+            TunUdpSniffedTarget::from_sniffed(target, provenance, None),
+            pending_payloads,
+        );
+    }
+    let Some(config) = context.sniffing.as_ref() else {
+        return (TunUdpSniffedTarget::original(target), pending_payloads);
+    };
+    if !crate::sniffing::should_sniff_udp(Some(config)) {
+        return (TunUdpSniffedTarget::original(target), pending_payloads);
+    }
+
+    let started_at = StdInstant::now();
+    let mut reassembler = crate::sniffing::QuicInitialSniReassembler::new(started_at);
+    let mut result = reassembler.push_datagram(first_payload, started_at);
+    if matches!(
+        result,
+        crate::sniffing::QuicInitialSniReassemblyResult::Pending
+    ) {
+        let deadline = TokioInstant::now() + QUIC_INITIAL_REASSEMBLY_TIMEOUT;
+        for _ in 0..QUIC_INITIAL_REASSEMBLY_MAX_DATAGRAMS {
+            let remaining = deadline.saturating_duration_since(TokioInstant::now());
+            if remaining.is_zero() {
+                result = crate::sniffing::QuicInitialSniReassemblyResult::Expired;
+                break;
+            }
+            let next_payload = tokio::time::timeout(remaining, async {
+                tokio::select! {
+                    changed = shutdown.changed() => {
+                        if changed.is_err() || *shutdown.borrow() {
+                            None
+                        } else {
+                            from_stack.recv().await
+                        }
+                    }
+                    payload = from_stack.recv() => payload,
+                }
+            })
+            .await;
+            let Ok(Some(payload)) = next_payload else {
+                result = crate::sniffing::QuicInitialSniReassemblyResult::Expired;
+                break;
+            };
+            result = reassembler.push_datagram(&payload, StdInstant::now());
+            pending_payloads.push_back(payload);
+            if !matches!(
+                result,
+                crate::sniffing::QuicInitialSniReassemblyResult::Pending
+            ) {
+                break;
+            }
+        }
+    }
+
+    if let crate::sniffing::QuicInitialSniReassemblyResult::Found(domain) = result {
+        return (
+            sniffed_tun_udp_target_from_domain(context, target, provenance, domain),
+            pending_payloads,
+        );
+    }
+
+    // The first payload may be a non-QUIC UDP protocol while the sniffing
+    // configuration contains multiple overrides. Preserve the existing
+    // single-payload path for those configurations; reassembly only consumes
+    // packets after a valid QUIC Initial has been observed.
+    if pending_payloads.is_empty() {
+        return (
+            sniff_tun_udp_target(context, target, provenance, first_payload),
+            pending_payloads,
+        );
+    }
+    (TunUdpSniffedTarget::original(target), pending_payloads)
+}
+
+fn sniffed_tun_udp_target_from_domain(
+    context: &TunRuntimeContext,
+    target: &Target,
+    provenance: FakeIpTargetProvenance,
+    domain: String,
+) -> TunUdpSniffedTarget {
+    let Some(config) = context.sniffing.as_ref() else {
+        return TunUdpSniffedTarget::original(target);
+    };
+    let route_target = Target::new(
+        RoutingTargetAddr::Domain(domain),
+        target.port,
+        target.network,
+    );
+    let dial_target = if config.route_only {
+        target.clone()
+    } else {
+        route_target.clone()
+    };
+    TunUdpSniffedTarget::from_sniffed(
+        target,
+        provenance,
+        Some(crate::sniffing::SniffedTarget {
+            route_target,
+            dial_target,
+            protocol: xray_config::SniffingDestination::Quic,
+        }),
+    )
+}
+
+fn is_quic_initial_datagram(payload: &[u8]) -> bool {
+    payload.len() >= 5 && payload[0] & 0x80 != 0 && payload[1..5] == 1u32.to_be_bytes()
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "UDP freedom bridge receives bounded per-flow runtime state explicitly"
@@ -4554,6 +4709,7 @@ async fn bridge_udp_freedom_flow(
     shutdown: watch::Receiver<bool>,
     udp_timing_start: Option<StdInstant>,
     first_payload: Bytes,
+    pending_payloads: VecDeque<Bytes>,
     connection: ConnectionLease,
     mut connection_close: watch::Receiver<bool>,
 ) {
@@ -4643,6 +4799,7 @@ async fn bridge_udp_freedom_flow(
             shutdown,
             &mut timing,
             first_payload,
+            pending_payloads,
             connection,
             connection_close,
             Arc::clone(&traffic),
@@ -4661,6 +4818,7 @@ async fn bridge_udp_freedom_flow(
             shutdown,
             &mut timing,
             first_payload,
+            pending_payloads,
             connection,
             connection_close,
             Arc::clone(&traffic),
@@ -4681,6 +4839,7 @@ async fn bridge_udp_freedom_flow_loop<T>(
     mut shutdown: watch::Receiver<bool>,
     timing: &mut T,
     first_payload: Bytes,
+    mut pending_payloads: VecDeque<Bytes>,
     connection: ConnectionLease,
     mut connection_close: watch::Receiver<bool>,
     traffic: Arc<ConnectionTraffic>,
@@ -4720,7 +4879,7 @@ async fn bridge_udp_freedom_flow_loop<T>(
             () = sleep(UDP_IDLE_TIMEOUT) => {
                 break;
             }
-            payload = from_stack.recv() => {
+            payload = next_udp_payload(&mut pending_payloads, &mut from_stack) => {
                 let Some(payload) = payload else {
                     break;
                 };
@@ -4788,6 +4947,7 @@ async fn bridge_udp_vless_flow(
     shutdown: watch::Receiver<bool>,
     udp_timing_start: Option<StdInstant>,
     first_payload: Bytes,
+    pending_payloads: VecDeque<Bytes>,
     connection: ConnectionLease,
     mut connection_close: watch::Receiver<bool>,
 ) {
@@ -4857,6 +5017,7 @@ async fn bridge_udp_vless_flow(
             &mut remote_writer,
             &mut timing,
             first_payload,
+            pending_payloads,
             connection,
             connection_close,
             Arc::clone(&traffic),
@@ -4876,6 +5037,7 @@ async fn bridge_udp_vless_flow(
             &mut remote_writer,
             &mut timing,
             first_payload,
+            pending_payloads,
             connection,
             connection_close,
             Arc::clone(&traffic),
@@ -4897,6 +5059,7 @@ async fn bridge_udp_vless_flow_loop<R, W, T>(
     remote_writer: &mut W,
     timing: &mut T,
     first_payload: Bytes,
+    mut pending_payloads: VecDeque<Bytes>,
     connection: ConnectionLease,
     mut connection_close: watch::Receiver<bool>,
     traffic: Arc<ConnectionTraffic>,
@@ -4966,7 +5129,7 @@ async fn bridge_udp_vless_flow_loop<R, W, T>(
             () = sleep(UDP_IDLE_TIMEOUT) => {
                 break;
             }
-            payload = from_stack.recv() => {
+            payload = next_udp_payload(&mut pending_payloads, &mut from_stack) => {
                 let Some(payload) = payload else {
                     break;
                 };

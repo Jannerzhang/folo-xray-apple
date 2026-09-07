@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,6 +95,7 @@ type netstackRuntime struct {
 	udpRejected      atomic.Uint64
 	udpTerminated    atomic.Uint64
 	udpIdleReclaimed atomic.Uint64
+	udpQuicBlocked   atomic.Uint64
 
 	queueDrops atomic.Uint64
 }
@@ -123,6 +125,7 @@ type NetstackDiagnostics struct {
 	UDPRejected          uint64                `json:"udpRejected"`
 	UDPTerminated        uint64                `json:"udpTerminated"`
 	UDPIdleReclaimed     uint64                `json:"udpIdleReclaimed"`
+	UDPQuicBlocked       uint64                `json:"udpQuicBlocked"`
 	QueueDrops           uint64                `json:"queueDrops"`
 	RouteStats           router.RouteStats     `json:"routeStats"`
 	RoutePolicySchema    int                   `json:"routePolicySchemaVersion"`
@@ -164,6 +167,7 @@ func (n *netstackRuntime) Diagnostics() NetstackDiagnostics {
 		UDPRejected:          n.udpRejected.Load(),
 		UDPTerminated:        n.udpTerminated.Load(),
 		UDPIdleReclaimed:     n.udpIdleReclaimed.Load(),
+		UDPQuicBlocked:       n.udpQuicBlocked.Load(),
 		QueueDrops:           n.queueDrops.Load(),
 		RouteStats:           routeStats,
 		RoutePolicySchema:    policySchema,
@@ -548,22 +552,6 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 		return false
 	}
 
-	parsedIP := net.ParseIP(id.LocalAddress.String())
-	decision := n.router.RouteWithContext(router.RouteContext{
-		IP:         parsedIP,
-		Port:       id.LocalPort,
-		Network:    "udp",
-		Provenance: router.ProvenanceIPSet,
-	})
-	n.recordRouteDecision(decision)
-	action := decision.Action
-	if action == router.ActionBlock {
-		n.udpActive.Add(^uint64(0))
-		<-n.udpTokens
-		n.udpTerminated.Add(1)
-		return true
-	}
-
 	var wq waiter.Queue
 	ep, err := request.CreateEndpoint(&wq)
 	if err != nil {
@@ -574,32 +562,6 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	}
 	inbound := gonet.NewUDPConn(&wq, ep)
 
-	var outbound net.PacketConn
-	var dialErr error
-
-	if action == router.ActionDirect {
-		var directConn net.Conn
-		directConn, dialErr = n.directDialer.DialUDP(n.ctx, destination.IP.String(), id.LocalPort)
-		if dialErr == nil {
-			if pc, ok := directConn.(net.PacketConn); ok {
-				outbound = pc
-			} else {
-				_ = directConn.Close()
-				outbound, dialErr = net.ListenPacket("udp", "")
-			}
-		}
-	} else {
-		outbound, dialErr = folotun.DialUDP(n.ctx, n.instance)
-	}
-
-	if dialErr != nil {
-		n.udpActive.Add(^uint64(0))
-		<-n.udpTokens
-		n.udpTerminated.Add(1)
-		_ = inbound.Close()
-		return true
-	}
-
 	if !n.startWork(func() {
 		defer func() {
 			n.udpActive.Add(^uint64(0))
@@ -607,14 +569,12 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 			n.udpTerminated.Add(1)
 		}()
 		defer inbound.Close()
-		defer outbound.Close()
-		n.proxyUDP(inbound, outbound, destination)
+		n.proxyUDP(inbound, destination)
 	}) {
 		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
 		n.udpTerminated.Add(1)
 		_ = inbound.Close()
-		_ = outbound.Close()
 	}
 	return true
 }
@@ -627,7 +587,64 @@ var udpBufferPool = sync.Pool{
 	},
 }
 
-func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketConn, destination *net.UDPAddr) {
+func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, destination *net.UDPAddr) {
+	firstBufferPtr := udpBufferPool.Get().(*[]byte)
+	firstBuffer := *firstBufferPtr
+	defer udpBufferPool.Put(firstBufferPtr)
+	_ = inbound.SetReadDeadline(time.Now().Add(2 * time.Second))
+	firstLength, _, err := inbound.ReadFrom(firstBuffer)
+	if err != nil {
+		return
+	}
+	_ = inbound.SetReadDeadline(time.Time{})
+
+	firstPayload := append([]byte(nil), firstBuffer[:firstLength]...)
+	domain, quicSeen, pending := collectInitialUDPPackets(inbound, firstPayload, firstBuffer)
+	parsedIP := destination.IP
+	provenance := router.ProvenanceIPSet
+	if domain != "" {
+		provenance = router.ProvenanceSniffed
+	}
+	decision := n.router.RouteWithContext(router.RouteContext{
+		Domain:     domain,
+		IP:         parsedIP,
+		Port:       uint16(destination.Port),
+		Network:    "udp",
+		Provenance: provenance,
+	})
+	n.recordRouteDecision(decision)
+	if decision.Action == router.ActionBlock {
+		if quicSeen {
+			n.udpQuicBlocked.Add(1)
+		}
+		return
+	}
+
+	var outbound net.PacketConn
+	if decision.Action == router.ActionDirect {
+		var directConn net.Conn
+		directConn, err = n.directDialer.DialUDP(n.ctx, destination.IP.String(), uint16(destination.Port))
+		if err == nil {
+			var ok bool
+			outbound, ok = directConn.(net.PacketConn)
+			if !ok {
+				_ = directConn.Close()
+				err = errors.New("direct UDP dialer did not return a packet connection")
+			}
+		}
+	} else {
+		outbound, err = folotun.DialUDP(n.ctx, n.instance)
+	}
+	if err != nil {
+		return
+	}
+	defer outbound.Close()
+	for _, payload := range pending {
+		if _, err := outbound.WriteTo(payload, destination); err != nil {
+			return
+		}
+	}
+
 	copyDone := make(chan struct{}, 2)
 	go func() {
 		bufPtr := udpBufferPool.Get().(*[]byte)
@@ -671,6 +688,47 @@ func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketCo
 	_ = inbound.Close()
 	_ = outbound.Close()
 	<-copyDone
+}
+
+func collectInitialUDPPackets(inbound *gonet.UDPConn, firstPayload, buffer []byte) (string, bool, [][]byte) {
+	pending := [][]byte{append([]byte(nil), firstPayload...)}
+	if !isQUICInitialDatagram(firstPayload) {
+		return "", false, pending
+	}
+
+	now := time.Now()
+	reassembler := newQUICInitialSNIReassembler(now)
+	result := reassembler.push(firstPayload, now)
+	quicSeen := result.seen
+	if result.status != quicSNIReassemblyPending {
+		return result.domain, quicSeen, pending
+	}
+
+	deadline := time.Now().Add(quicInitialReassemblyLimit)
+	for index := 0; index < 4; index++ {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		_ = inbound.SetReadDeadline(time.Now().Add(remaining))
+		length, _, err := inbound.ReadFrom(buffer)
+		if err != nil {
+			break
+		}
+		payload := append([]byte(nil), buffer[:length]...)
+		pending = append(pending, payload)
+		result = reassembler.push(payload, time.Now())
+		quicSeen = quicSeen || result.seen
+		if result.status != quicSNIReassemblyPending {
+			break
+		}
+	}
+	_ = inbound.SetReadDeadline(time.Time{})
+	return result.domain, quicSeen, pending
+}
+
+func isQUICInitialDatagram(payload []byte) bool {
+	return len(payload) >= 5 && payload[0]&0x80 != 0 && binary.BigEndian.Uint32(payload[1:5]) == quicVersionV1
 }
 
 func netstackAddress(address tcpip.Address) (string, bool) {

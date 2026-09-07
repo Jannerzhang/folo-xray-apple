@@ -946,6 +946,14 @@ impl TunEndpoint {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn record_udp_quic_blocked_packet(&self, target: String, bytes: usize) {
+        self.record_udp_quic_blocked();
+        self.record_udp_quic_blocked_event(TunUdpQuicBlockedEvent {
+            target,
+            bytes: bytes as u64,
+        });
+    }
+
     pub fn close(&self) {
         self.closed.store(true, Ordering::Release);
         self.closed_notify.notify_waiters();

@@ -46,7 +46,7 @@ pub use sniffing::sniff_quic_initial_sni_for_fuzzing;
 
 pub use sniffing::{
     build_test_quic_initial_packet, should_sniff_udp, sniff_quic_initial_sni_public,
-    sniff_udp_initial_payload,
+    sniff_udp_initial_payload, QuicInitialSniReassembler, QuicInitialSniReassemblyResult,
 };
 
 const TUN_MTU: usize = 1500;
