@@ -181,35 +181,25 @@ final class XrayPacketTunnelPumpTests: XCTestCase {
     }
 
     func testFFIVersionValidationAcceptsCurrentAndNewerMinorABI() {
-        XCTAssertNoThrow(try XrayCore.validateFFIVersion(major: 1, minor: 1))
-        XCTAssertNoThrow(try XrayCore.validateFFIVersion(major: 1, minor: 2))
-        XCTAssertNoThrow(try XrayCore.validateFFIVersion(major: 1, minor: 4))
+        XCTAssertNoThrow(try XrayCore.validateFFIVersion(major: 2, minor: 0))
+        XCTAssertNoThrow(try XrayCore.validateFFIVersion(major: 2, minor: 1))
+        XCTAssertNoThrow(try XrayCore.validateFFIVersion(major: 2, minor: 4))
     }
 
     func testFFIVersionValidationRejectsIncompatibleMajorABI() {
-        XCTAssertThrowsError(try XrayCore.validateFFIVersion(major: 2, minor: 1)) { error in
+        XCTAssertThrowsError(try XrayCore.validateFFIVersion(major: 1, minor: 4)) { error in
             guard case let XrayCoreError.incompatibleFFIMajorVersion(expected, actual) = error else {
                 return XCTFail("unexpected error: \(error)")
             }
-            XCTAssertEqual(expected, 1)
-            XCTAssertEqual(actual, 2)
-        }
-    }
-
-    func testFFIVersionValidationRejectsOlderMinorABI() {
-        XCTAssertThrowsError(try XrayCore.validateFFIVersion(major: 1, minor: 0)) { error in
-            guard case let XrayCoreError.incompatibleFFIMinorVersion(required, actual) = error else {
-                return XCTFail("unexpected error: \(error)")
-            }
-            XCTAssertEqual(required, 1)
-            XCTAssertEqual(actual, 0)
+            XCTAssertEqual(expected, 2)
+            XCTAssertEqual(actual, 1)
         }
     }
 
     func testFFIInfoReportsCurrentCapabilities() {
         let info = XrayCore.ffiInfo
 
-        XCTAssertEqual(info.version, XrayFFIVersion(major: 1, minor: 4))
+        XCTAssertEqual(info.version, XrayFFIVersion(major: 2, minor: 0))
         XCTAssertTrue(info.supports(.configWarnings))
         XCTAssertTrue(info.supports(.geodataSearch))
         XCTAssertTrue(info.supports(.socketProtection))

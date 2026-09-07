@@ -770,8 +770,8 @@ private extension XrayTcpSlowFlowKind {
 }
 
 public final class XrayCore: @unchecked Sendable {
-    static let expectedFFIMajorVersion: UInt32 = 1
-    static let minimumFFIMinorVersion: UInt32 = 1
+    static let expectedFFIMajorVersion: UInt32 = 2
+    static let minimumFFIMinorVersion: UInt32 = 0
     static let maximumPolledPacketBytes = 65_535
     static let maximumPacketBatchBytes = 4 * 1_024 * 1_024
 

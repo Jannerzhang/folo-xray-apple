@@ -168,8 +168,8 @@ fn apple_adapter_declares_packet_tunnel_pump() {
     assert!(core.contains("xray_ffi_version_major()"));
     assert!(core.contains("xray_ffi_version_minor()"));
     assert!(core.contains("xray_ffi_capabilities()"));
-    assert!(core.contains("expectedFFIMajorVersion: UInt32 = 1"));
-    assert!(core.contains("minimumFFIMinorVersion: UInt32 = 1"));
+    assert!(core.contains("expectedFFIMajorVersion: UInt32 = 2"));
+    assert!(core.contains("minimumFFIMinorVersion: UInt32 = 0"));
     assert!(core.contains("public struct XrayFFIVersion"));
     assert!(core.contains("public struct XrayFFICapabilities: OptionSet"));
     assert!(core.contains("public struct XrayFFIInfo"));
@@ -743,6 +743,7 @@ fn release_gate_scripts_require_long_soak_and_real_apple_artifact() {
     assert!(performance_gate.contains("SOAK_SECONDS=\"${XRAY_FFI_SOAK_SECONDS:-1800}\""));
     assert!(performance_gate.contains("--ignored"));
     assert!(performance_gate.contains("XRAY_ALLOW_SHORT_GATE"));
+    assert!(performance_gate.contains("XRAY_FFI_CONFIG_PATH"));
     assert!(artifact_gate.contains("XCFRAMEWORK_PATH"));
     assert!(artifact_gate.contains("xray_core_cancel_tun_poll"));
     assert!(artifact_gate.contains("xray_tun_push_packets"));

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Folo-Proprietary
 
 use std::ffi::CString;
+use std::fs;
 use std::time::{Duration, Instant};
 use std::{env, sync::Arc, thread};
 
@@ -70,6 +71,14 @@ fn tun_config_minimal() -> String {
       ]
     }"#
     .to_string()
+}
+
+fn tun_config_for_gate() -> String {
+    env::var("XRAY_FFI_CONFIG_PATH")
+        .ok()
+        .filter(|path| !path.is_empty())
+        .map(|path| fs::read_to_string(path).expect("XRAY_FFI_CONFIG_PATH must be readable"))
+        .unwrap_or_else(tun_config_minimal)
 }
 
 #[test]
@@ -374,7 +383,17 @@ fn test_mixed_256_tcp_256_udp_release_gate() {
         },
         XrayStatus::Ok
     );
-    let config = CString::new(tun_config_minimal()).unwrap();
+    let soak_duration = env_duration("XRAY_FFI_SOAK_SECONDS", 30 * 60);
+    if soak_duration >= Duration::from_secs(30 * 60) {
+        assert!(
+            env::var("XRAY_FFI_CONFIG_PATH")
+                .ok()
+                .filter(|path| !path.is_empty())
+                .is_some_and(|path| std::path::Path::new(&path).is_file()),
+            "the 30-minute gate requires XRAY_FFI_CONFIG_PATH for a controlled service configuration"
+        );
+    }
+    let config = CString::new(tun_config_for_gate()).unwrap();
     assert_eq!(
         unsafe { xray_core_load_config_json(core, config.as_ptr(), &mut err) },
         XrayStatus::Ok
@@ -382,7 +401,6 @@ fn test_mixed_256_tcp_256_udp_release_gate() {
     assert_eq!(unsafe { xray_core_start(core, &mut err) }, XrayStatus::Ok);
 
     let core_addr = core as usize;
-    let soak_duration = env_duration("XRAY_FFI_SOAK_SECONDS", 30 * 60);
     let end_at = Instant::now() + soak_duration;
     let (start_user_cpu, start_system_cpu, _) = process_usage();
     let require_zero_drops = env::var("XRAY_FFI_REQUIRE_ZERO_DROPS")
@@ -518,6 +536,10 @@ fn test_mixed_256_tcp_256_udp_release_gate() {
     assert!(
         total_polled > 0,
         "TUN output must be observed by the poller"
+    );
+    assert_eq!(
+        final_stats.outbound_packets, total_polled as u64,
+        "reported TUN replies must match the packets observed by the poller"
     );
     assert!(peak_tcp_flows <= TCP_FLOWS as u64);
     assert!(peak_udp_flows <= UDP_FLOWS as u64);

@@ -12,6 +12,13 @@ if [[ "$SOAK_SECONDS" -lt 1800 && "$ALLOW_SHORT" != "1" ]]; then
   exit 2
 fi
 
+if [[ "$SOAK_SECONDS" -ge 1800 ]]; then
+  if [[ -z "${XRAY_FFI_CONFIG_PATH:-}" || ! -f "$XRAY_FFI_CONFIG_PATH" ]]; then
+    echo "the 30-minute gate requires XRAY_FFI_CONFIG_PATH for a controlled service configuration" >&2
+    exit 2
+  fi
+fi
+
 REQUIRE_ZERO_DROPS="${XRAY_FFI_REQUIRE_ZERO_DROPS:-0}"
 if [[ "$SOAK_SECONDS" -ge 1800 ]]; then
   REQUIRE_ZERO_DROPS=1
@@ -19,5 +26,6 @@ fi
 
 XRAY_FFI_SOAK_SECONDS="$SOAK_SECONDS" \
 XRAY_FFI_REQUIRE_ZERO_DROPS="$REQUIRE_ZERO_DROPS" \
+XRAY_FFI_CONFIG_PATH="${XRAY_FFI_CONFIG_PATH:-}" \
   cargo test --release -p xray-ffi --test performance_and_soak_tests -- \
   --ignored --nocapture
