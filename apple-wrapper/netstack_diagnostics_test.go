@@ -95,8 +95,20 @@ func TestNetstackDiagnostics_ConcurrencyAndRejection(t *testing.T) {
 	if _, ok := parsed["tcpRejected"]; !ok {
 		t.Errorf("missing tcpRejected in JSON")
 	}
+	if _, ok := parsed["tcpTerminated"]; !ok {
+		t.Errorf("missing tcpTerminated in JSON")
+	}
+	if _, ok := parsed["tcpHalfCloseReleased"]; !ok {
+		t.Errorf("missing tcpHalfCloseReleased in JSON")
+	}
 	if _, ok := parsed["udpRejected"]; !ok {
 		t.Errorf("missing udpRejected in JSON")
+	}
+	if _, ok := parsed["udpTerminated"]; !ok {
+		t.Errorf("missing udpTerminated in JSON")
+	}
+	if _, ok := parsed["udpIdleReclaimed"]; !ok {
+		t.Errorf("missing udpIdleReclaimed in JSON")
 	}
 	if _, ok := parsed["gcCycleCount"]; !ok {
 		t.Errorf("missing gcCycleCount in JSON")

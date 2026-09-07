@@ -25,25 +25,11 @@ import (
 	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
 
-var scavengerOnce sync.Once
-
-func startScavenger() {
-	scavengerOnce.Do(func() {
-		go func() {
-			ticker := time.NewTicker(1 * time.Second)
-			for range ticker.C {
-				debug.FreeOSMemory()
-			}
-		}()
-	})
-}
-
 func init() {
-	// Restrict Go runtime threads and memory footprint for iOS NetworkExtension Jetsam limits
+	// Restrict Go runtime threads and tune memory limit for iOS NetworkExtension Jetsam limits
 	runtime.GOMAXPROCS(1)
-	debug.SetMemoryLimit(8 * 1024 * 1024)
-	debug.SetGCPercent(10)
-	startScavenger()
+	debug.SetMemoryLimit(24 * 1024 * 1024)
+	debug.SetGCPercent(50)
 }
 
 const maxConfigBytes = 4 * 1024 * 1024
@@ -287,6 +273,8 @@ func FoloXrayNetstackStop() C.int32_t {
 	engine.Lock()
 	clearErrorLocked()
 	engine.Unlock()
+	runtime.GC()
+	debug.FreeOSMemory()
 	return C.int32_t(statusOK)
 }
 

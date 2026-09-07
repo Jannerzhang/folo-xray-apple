@@ -44,6 +44,7 @@ const (
 	netstackMaxConcurrentTCP             = 48
 	netstackMaxConcurrentUDP             = 48
 	netstackCopyBufferSize               = 4 * 1024
+	netstackTCPHalfCloseGrace            = 1 * time.Second
 )
 
 var (
@@ -77,15 +78,19 @@ type netstackRuntime struct {
 	tcpTokens chan struct{}
 	udpTokens chan struct{}
 
-	tcpActive      atomic.Uint64
-	tcpPeak        atomic.Uint64
-	tcpRejected    atomic.Uint64
-	tcpPendingOpen atomic.Uint64
-	tcpHalfClose   atomic.Uint64
+	tcpActive            atomic.Uint64
+	tcpPeak              atomic.Uint64
+	tcpRejected          atomic.Uint64
+	tcpPendingOpen       atomic.Uint64
+	tcpHalfClose         atomic.Uint64
+	tcpHalfCloseReleased atomic.Uint64
+	tcpTerminated        atomic.Uint64
 
-	udpActive   atomic.Uint64
-	udpPeak     atomic.Uint64
-	udpRejected atomic.Uint64
+	udpActive        atomic.Uint64
+	udpPeak          atomic.Uint64
+	udpRejected      atomic.Uint64
+	udpTerminated    atomic.Uint64
+	udpIdleReclaimed atomic.Uint64
 
 	queueDrops atomic.Uint64
 }
@@ -103,21 +108,25 @@ func updatePeak(peak *atomic.Uint64, current uint64) {
 }
 
 type NetstackDiagnostics struct {
-	TCPActive      uint64            `json:"tcpActive"`
-	TCPPeak        uint64            `json:"tcpPeak"`
-	TCPRejected    uint64            `json:"tcpRejected"`
-	TCPPendingOpen uint64            `json:"tcpPendingOpen"`
-	TCPHalfClose   uint64            `json:"tcpHalfClose"`
-	UDPActive      uint64            `json:"udpActive"`
-	UDPPeak        uint64            `json:"udpPeak"`
-	UDPRejected    uint64            `json:"udpRejected"`
-	QueueDrops     uint64            `json:"queueDrops"`
-	RouteStats     router.RouteStats `json:"routeStats"`
-	GCCycleCount   uint32            `json:"gcCycleCount"`
-	GCPauseTotalNs uint64            `json:"gcPauseTotalNs"`
-	HeapAllocBytes uint64            `json:"heapAllocBytes"`
-	HeapSysBytes   uint64            `json:"heapSysBytes"`
-	GoroutineCount int               `json:"goroutineCount"`
+	TCPActive            uint64            `json:"tcpActive"`
+	TCPPeak              uint64            `json:"tcpPeak"`
+	TCPRejected          uint64            `json:"tcpRejected"`
+	TCPPendingOpen       uint64            `json:"tcpPendingOpen"`
+	TCPHalfClose         uint64            `json:"tcpHalfClose"`
+	TCPHalfCloseReleased uint64            `json:"tcpHalfCloseReleased"`
+	TCPTerminated        uint64            `json:"tcpTerminated"`
+	UDPActive            uint64            `json:"udpActive"`
+	UDPPeak              uint64            `json:"udpPeak"`
+	UDPRejected          uint64            `json:"udpRejected"`
+	UDPTerminated        uint64            `json:"udpTerminated"`
+	UDPIdleReclaimed     uint64            `json:"udpIdleReclaimed"`
+	QueueDrops           uint64            `json:"queueDrops"`
+	RouteStats           router.RouteStats `json:"routeStats"`
+	GCCycleCount         uint32            `json:"gcCycleCount"`
+	GCPauseTotalNs       uint64            `json:"gcPauseTotalNs"`
+	HeapAllocBytes       uint64            `json:"heapAllocBytes"`
+	HeapSysBytes         uint64            `json:"heapSysBytes"`
+	GoroutineCount       int               `json:"goroutineCount"`
 }
 
 func (n *netstackRuntime) Diagnostics() NetstackDiagnostics {
@@ -130,21 +139,25 @@ func (n *netstackRuntime) Diagnostics() NetstackDiagnostics {
 	}
 
 	return NetstackDiagnostics{
-		TCPActive:      n.tcpActive.Load(),
-		TCPPeak:        n.tcpPeak.Load(),
-		TCPRejected:    n.tcpRejected.Load(),
-		TCPPendingOpen: n.tcpPendingOpen.Load(),
-		TCPHalfClose:   n.tcpHalfClose.Load(),
-		UDPActive:      n.udpActive.Load(),
-		UDPPeak:        n.udpPeak.Load(),
-		UDPRejected:    n.udpRejected.Load(),
-		QueueDrops:     n.queueDrops.Load(),
-		RouteStats:     routeStats,
-		GCCycleCount:   mem.NumGC,
-		GCPauseTotalNs: mem.PauseTotalNs,
-		HeapAllocBytes: mem.Alloc,
-		HeapSysBytes:   mem.Sys,
-		GoroutineCount: runtime.NumGoroutine(),
+		TCPActive:            n.tcpActive.Load(),
+		TCPPeak:              n.tcpPeak.Load(),
+		TCPRejected:          n.tcpRejected.Load(),
+		TCPPendingOpen:       n.tcpPendingOpen.Load(),
+		TCPHalfClose:         n.tcpHalfClose.Load(),
+		TCPHalfCloseReleased: n.tcpHalfCloseReleased.Load(),
+		TCPTerminated:        n.tcpTerminated.Load(),
+		UDPActive:            n.udpActive.Load(),
+		UDPPeak:              n.udpPeak.Load(),
+		UDPRejected:          n.udpRejected.Load(),
+		UDPTerminated:        n.udpTerminated.Load(),
+		UDPIdleReclaimed:     n.udpIdleReclaimed.Load(),
+		QueueDrops:           n.queueDrops.Load(),
+		RouteStats:           routeStats,
+		GCCycleCount:         mem.NumGC,
+		GCPauseTotalNs:       mem.PauseTotalNs,
+		HeapAllocBytes:       mem.Alloc,
+		HeapSysBytes:         mem.Sys,
+		GoroutineCount:       runtime.NumGoroutine(),
 	}
 }
 
@@ -367,6 +380,7 @@ func (n *netstackRuntime) handleTCP(request *tcp.ForwarderRequest) {
 	if !ok || id.LocalPort == 0 {
 		n.tcpActive.Add(^uint64(0))
 		<-n.tcpTokens
+		n.tcpTerminated.Add(1)
 		_ = conn.Close()
 		return
 	}
@@ -375,11 +389,13 @@ func (n *netstackRuntime) handleTCP(request *tcp.ForwarderRequest) {
 		defer func() {
 			n.tcpActive.Add(^uint64(0))
 			<-n.tcpTokens
+			n.tcpTerminated.Add(1)
 		}()
 		n.proxyTCP(conn, destination, id.LocalPort)
 	}) {
 		n.tcpActive.Add(^uint64(0))
 		<-n.tcpTokens
+		n.tcpTerminated.Add(1)
 		_ = conn.Close()
 	}
 }
@@ -475,11 +491,12 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 	// Wait for the first direction to finish
 	<-copyDone
 	n.tcpHalfClose.Add(1)
-	// Unblock and cleanly terminate the other direction after 5s grace period to avoid token exhaustion
-	_ = inbound.SetDeadline(time.Now().Add(5 * time.Second))
-	_ = outbound.SetDeadline(time.Now().Add(5 * time.Second))
+	// Unblock and cleanly terminate the other direction after grace period to avoid token exhaustion
+	_ = inbound.SetDeadline(time.Now().Add(netstackTCPHalfCloseGrace))
+	_ = outbound.SetDeadline(time.Now().Add(netstackTCPHalfCloseGrace))
 	<-copyDone
 	n.tcpHalfClose.Add(^uint64(0))
+	n.tcpHalfCloseReleased.Add(1)
 }
 
 func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
@@ -498,6 +515,7 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	if !ok {
 		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
+		n.udpTerminated.Add(1)
 		return false
 	}
 
@@ -506,6 +524,7 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	if action == router.ActionBlock {
 		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
+		n.udpTerminated.Add(1)
 		return true
 	}
 
@@ -514,6 +533,7 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	if err != nil {
 		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
+		n.udpTerminated.Add(1)
 		return false
 	}
 	inbound := gonet.NewUDPConn(&wq, ep)
@@ -539,6 +559,7 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	if dialErr != nil {
 		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
+		n.udpTerminated.Add(1)
 		_ = inbound.Close()
 		return true
 	}
@@ -547,6 +568,7 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 		defer func() {
 			n.udpActive.Add(^uint64(0))
 			<-n.udpTokens
+			n.udpTerminated.Add(1)
 		}()
 		defer inbound.Close()
 		defer outbound.Close()
@@ -554,6 +576,7 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	}) {
 		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
+		n.udpTerminated.Add(1)
 		_ = inbound.Close()
 		_ = outbound.Close()
 	}
@@ -578,6 +601,9 @@ func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketCo
 			_ = inbound.SetReadDeadline(time.Now().Add(30 * time.Second))
 			length, _, err := inbound.ReadFrom(buffer)
 			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					n.udpIdleReclaimed.Add(1)
+				}
 				break
 			}
 			if _, err := outbound.WriteTo(buffer[:length], destination); err != nil {
@@ -594,6 +620,9 @@ func (n *netstackRuntime) proxyUDP(inbound *gonet.UDPConn, outbound net.PacketCo
 			_ = outbound.SetReadDeadline(time.Now().Add(30 * time.Second))
 			length, _, err := outbound.ReadFrom(buffer)
 			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					n.udpIdleReclaimed.Add(1)
+				}
 				break
 			}
 			if _, err := inbound.Write(buffer[:length]); err != nil {
