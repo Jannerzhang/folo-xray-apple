@@ -417,6 +417,34 @@ final class XrayPacketTunnelPumpTests: XCTestCase {
         wait(for: [dataPathReturned], timeout: 1)
     }
 
+    func testLifecycleGateCancelsBlockedPollBeforeJoiningDataPath() {
+        let gate = XrayCoreCallGate()
+        let readerEntered = DispatchSemaphore(value: 0)
+        let releaseReader = DispatchSemaphore(value: 0)
+        let cancelCalled = DispatchSemaphore(value: 0)
+        let lifecycleBodyEntered = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global().async {
+            gate.withDataPath {
+                readerEntered.signal()
+                releaseReader.wait()
+            }
+        }
+        XCTAssertEqual(readerEntered.wait(timeout: .now() + 1), .success)
+
+        DispatchQueue.global().async {
+            gate.withLifecycle(cancel: {
+                cancelCalled.signal()
+                releaseReader.signal()
+            }) {
+                lifecycleBodyEntered.signal()
+            }
+        }
+
+        XCTAssertEqual(cancelCalled.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(lifecycleBodyEntered.wait(timeout: .now() + 1), .success)
+    }
+
     func testStatsDebugLogMessagesStayBelowTruncationLimit() {
         let messages = Self.sampleStats.debugLogMessages()
 

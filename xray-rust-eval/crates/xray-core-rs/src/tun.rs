@@ -25,9 +25,9 @@ use xray_transport::{
     TransportDialer, TransportError,
 };
 use xray_tun::{
-    TunEndpoint, TunError, TunTcpBufferState, TunTcpFlowSummaryEvent, TunTcpOpenErrorEvent,
-    TunTcpRemoteWriteSlowEvent, TunTcpSlowFlowEvent, TunTcpSlowFlowKind, TunUdpResponseGapEvent,
-    TunUdpSlowFlowEvent,
+    TunByteBudget, TunEndpoint, TunError, TunTcpBufferState, TunTcpFlowSummaryEvent,
+    TunTcpOpenErrorEvent, TunTcpRemoteWriteSlowEvent, TunTcpSlowFlowEvent, TunTcpSlowFlowKind,
+    TunUdpResponseGapEvent, TunUdpSlowFlowEvent,
 };
 
 use crate::connection::{
@@ -67,9 +67,10 @@ const STACK_EVENT_CHANNEL_DEPTH: usize = 64;
 const TCP_BRIDGE_CHANNEL_DEPTH: usize = 256;
 const MOBILE_TCP_BRIDGE_CHANNEL_DEPTH: usize = 128;
 const LOW_MEMORY_TCP_BRIDGE_CHANNEL_DEPTH: usize = 64;
-// Burst-heavy UDP (DNS fan-out, QUIC fallback retries) overflows a 64-deep
-// channel and surfaces as udp_channel_dropped_packets.
-const UDP_BRIDGE_CHANNEL_DEPTH: usize = 256;
+// UDP payloads are charged to the shared byte budget as they enter this
+// channel. Keep the per-flow count small as a second bound so a stalled flow
+// cannot reserve the whole mobile memory envelope by itself.
+const UDP_BRIDGE_CHANNEL_DEPTH: usize = 32;
 const BRIDGE_READ_BUFFER_SIZE: usize = 16 * 1024;
 const TCP_BRIDGE_WRITE_BATCH_MAX_MESSAGES: usize = TCP_BRIDGE_CHANNEL_DEPTH + 1;
 const MOBILE_TCP_BRIDGE_WRITE_BATCH_MAX_MESSAGES: usize = MOBILE_TCP_BRIDGE_CHANNEL_DEPTH + 1;
@@ -533,15 +534,52 @@ impl TcpUploadBufferState {
 }
 
 #[derive(Debug)]
-struct TcpUploadReservation {
-    state: Arc<TcpUploadBufferState>,
+struct TunMemoryReservation {
+    budget: Arc<TunByteBudget>,
     bytes: usize,
 }
 
+impl TunMemoryReservation {
+    fn new(budget: Arc<TunByteBudget>, bytes: usize) -> Option<Self> {
+        if !budget.try_reserve(bytes) {
+            return None;
+        }
+        Some(Self { budget, bytes })
+    }
+}
+
+impl Drop for TunMemoryReservation {
+    fn drop(&mut self) {
+        self.budget.release(self.bytes);
+    }
+}
+
+#[derive(Debug)]
+struct TcpUploadReservation {
+    state: Arc<TcpUploadBufferState>,
+    bytes: usize,
+    _memory: TunMemoryReservation,
+}
+
 impl TcpUploadReservation {
+    #[cfg(test)]
     fn new(state: Arc<TcpUploadBufferState>, bytes: usize) -> Self {
+        Self::with_budget(state, Arc::new(TunByteBudget::new(usize::MAX)), bytes)
+            .expect("unlimited test upload budget")
+    }
+
+    fn with_budget(
+        state: Arc<TcpUploadBufferState>,
+        budget: Arc<TunByteBudget>,
+        bytes: usize,
+    ) -> Option<Self> {
+        let memory = TunMemoryReservation::new(budget, bytes)?;
         state.reserve(bytes);
-        Self { state, bytes }
+        Some(Self {
+            state,
+            bytes,
+            _memory: memory,
+        })
     }
 }
 
@@ -583,6 +621,7 @@ struct FlowBudgetState {
     policy: FlowBudgetPolicy,
     tcp_remote: TcpRemoteBufferState,
     tcp_upload: Arc<TcpUploadBufferState>,
+    memory_budget: Arc<TunByteBudget>,
     pending_remote_by_destination: HashMap<Target, usize>,
     destination_targets: HashMap<SocketHandle, Target>,
     udp_sequence: u64,
@@ -708,11 +747,18 @@ fn tun_wait_plan(
 }
 
 impl FlowBudgetState {
+    #[cfg(test)]
     fn new(policy: FlowBudgetPolicy) -> Self {
+        let memory_budget = Arc::new(TunByteBudget::new(policy.tcp_remote.hard_total_bytes));
+        Self::new_with_memory_budget(policy, memory_budget)
+    }
+
+    fn new_with_memory_budget(policy: FlowBudgetPolicy, memory_budget: Arc<TunByteBudget>) -> Self {
         Self {
             policy,
             tcp_remote: TcpRemoteBufferState::new(policy.tcp_remote),
             tcp_upload: Arc::new(TcpUploadBufferState::default()),
+            memory_budget,
             pending_remote_by_destination: HashMap::new(),
             destination_targets: HashMap::new(),
             udp_sequence: 0,
@@ -737,6 +783,9 @@ impl FlowBudgetState {
         data_len: usize,
     ) -> bool {
         self.refresh_tcp_pressure_state();
+        if data_len > self.memory_budget.available_bytes() {
+            return false;
+        }
         if self.pending_tcp_buffer_bytes().saturating_add(data_len)
             > self.policy.tcp_remote.hard_total_bytes
         {
@@ -790,6 +839,7 @@ impl FlowBudgetState {
 
     #[cfg(test)]
     fn record_pending_remote_enqueue(&mut self, flow_pending_bytes: usize, data_len: usize) {
+        assert!(self.memory_budget.try_reserve(data_len));
         self.record_pending_remote_enqueue_for_handle(None, flow_pending_bytes, data_len);
     }
 
@@ -801,6 +851,8 @@ impl FlowBudgetState {
     ) {
         self.tcp_remote
             .record_pending_remote_dequeue(flow_pending_bytes, data_len);
+        let removed_bytes = data_len.min(flow_pending_bytes);
+        self.memory_budget.release(removed_bytes);
         if let Some(h) = handle {
             if let Some(target) = self.destination_targets.get(&h) {
                 if let Some(entry) = self.pending_remote_by_destination.get_mut(target) {
@@ -828,6 +880,7 @@ impl FlowBudgetState {
     ) {
         self.tcp_remote
             .record_pending_remote_remove_flow(flow_pending_bytes);
+        self.memory_budget.release(flow_pending_bytes);
         if let Some(h) = handle {
             if let Some(target) = self.destination_targets.remove(&h) {
                 if let Some(entry) = self.pending_remote_by_destination.get_mut(&target) {
@@ -857,6 +910,9 @@ impl FlowBudgetState {
             return false;
         }
 
+        if !self.memory_budget.try_reserve(data_len) {
+            return false;
+        }
         self.tcp_upload.reserve(data_len);
         self.refresh_tcp_pressure_state();
         true
@@ -867,7 +923,11 @@ impl FlowBudgetState {
             return None;
         }
 
-        let reservation = TcpUploadReservation::new(self.tcp_upload.clone(), data_len);
+        let reservation = TcpUploadReservation::with_budget(
+            self.tcp_upload.clone(),
+            Arc::clone(&self.memory_budget),
+            data_len,
+        )?;
         self.refresh_tcp_pressure_state();
         Some(reservation)
     }
@@ -881,7 +941,20 @@ impl FlowBudgetState {
     #[cfg(test)]
     fn record_pending_upload_dequeue(&mut self, data_len: usize) {
         self.tcp_upload.release(data_len);
+        self.memory_budget.release(data_len);
         self.refresh_tcp_pressure_state();
+    }
+
+    fn try_reserve_remote_data(&self, data_len: usize) -> bool {
+        self.memory_budget.try_reserve(data_len)
+    }
+
+    fn try_reserve_udp_packet(&self, data_len: usize) -> bool {
+        self.memory_budget.try_reserve(data_len)
+    }
+
+    fn release_udp_packet(&self, data_len: usize) {
+        self.memory_budget.release(data_len);
     }
 
     fn pending_total_bytes(&self) -> usize {
@@ -923,6 +996,7 @@ impl FlowBudgetState {
             .tcp_remote
             .hard_total_bytes
             .saturating_sub(self.pending_tcp_buffer_bytes())
+            .min(self.memory_budget.available_bytes())
     }
 
     fn refresh_tcp_pressure_state(&mut self) {
@@ -1038,7 +1112,8 @@ pub(crate) async fn serve_tun_endpoint(
     runtime_logger: RuntimeLogger,
     mut shutdown: watch::Receiver<bool>,
 ) {
-    let mut device = PacketDevice::new(1500);
+    let memory_budget = tun.memory_budget();
+    let mut device = PacketDevice::with_memory_budget(1500, Arc::clone(&memory_budget));
     let mut iface_config = InterfaceConfig::new(HardwareAddress::Ip);
     iface_config.random_seed = DEFAULT_RANDOM_SEED;
     let mut iface = Interface::new(iface_config, &mut device, Instant::now());
@@ -1063,7 +1138,8 @@ pub(crate) async fn serve_tun_endpoint(
     let udp_task_limit = runtime_policy.flows.udp.max_active_flows;
     let udp_task_permits = Arc::new(Semaphore::new(udp_task_limit));
     let dns_udp_task_permits = Arc::new(Semaphore::new(dns_udp_task_limit(udp_task_limit)));
-    let mut flow_budget_state = FlowBudgetState::new(runtime_policy.flows);
+    let mut flow_budget_state =
+        FlowBudgetState::new_with_memory_budget(runtime_policy.flows, Arc::clone(&memory_budget));
     let mut udp_flows = HashMap::new();
     let mut delayed_stack_events = VecDeque::new();
     let (stack_tx, mut stack_rx) = mpsc::channel(STACK_EVENT_CHANNEL_DEPTH);
@@ -1087,6 +1163,7 @@ pub(crate) async fn serve_tun_endpoint(
         connection_registry,
         stack_tx,
         tun: Arc::clone(&tun),
+        memory_budget,
         tun_runtime_options,
         runtime_policy,
         tcp_active_flow_permits,
@@ -1640,6 +1717,7 @@ struct TunRuntimeContext {
     connection_registry: Arc<ConnectionRegistry>,
     stack_tx: mpsc::Sender<StackEvent>,
     tun: Arc<TunEndpoint>,
+    memory_budget: Arc<TunByteBudget>,
     tun_runtime_options: TunRuntimeOptions,
     runtime_policy: TunRuntimePolicy,
     tcp_active_flow_permits: Arc<Semaphore>,
@@ -1912,6 +1990,34 @@ struct UdpFlow {
     generation: u64,
     last_used_sequence: u64,
     task: Option<AbortHandle>,
+}
+
+struct UdpPayloadReceiver {
+    receiver: mpsc::Receiver<Bytes>,
+    memory_budget: Arc<TunByteBudget>,
+}
+
+impl UdpPayloadReceiver {
+    fn new(receiver: mpsc::Receiver<Bytes>, memory_budget: Arc<TunByteBudget>) -> Self {
+        Self {
+            receiver,
+            memory_budget,
+        }
+    }
+
+    async fn recv(&mut self) -> Option<Bytes> {
+        let packet = self.receiver.recv().await?;
+        self.memory_budget.release(packet.len());
+        Some(packet)
+    }
+}
+
+impl Drop for UdpPayloadReceiver {
+    fn drop(&mut self) {
+        while let Ok(packet) = self.receiver.try_recv() {
+            self.memory_budget.release(packet.len());
+        }
+    }
 }
 
 impl Drop for UdpFlow {
@@ -2500,6 +2606,13 @@ fn try_apply_stack_event(
                 flow.pending_remote_bytes,
                 data.len(),
             ) {
+                return Err(StackEvent::RemoteData {
+                    handle,
+                    generation,
+                    data,
+                });
+            }
+            if !flow_budget_state.try_reserve_remote_data(data.len()) {
                 return Err(StackEvent::RemoteData {
                     handle,
                     generation,
@@ -4148,6 +4261,8 @@ fn handle_udp_packet(
                 .collect_tcp_timings
                 .then(StdInstant::now);
             let (to_remote, from_stack) = mpsc::channel(UDP_BRIDGE_CHANNEL_DEPTH);
+            let from_stack =
+                UdpPayloadReceiver::new(from_stack, Arc::clone(&context.memory_budget));
             let task = udp_tasks.spawn(bridge_udp_flow(
                 key,
                 sequence,
@@ -4174,7 +4289,13 @@ fn handle_udp_packet(
     }
 
     if let Some(flow) = flows.get(&key) {
+        let payload_len = packet.payload.len();
+        if !flow_budget_state.try_reserve_udp_packet(payload_len) {
+            flow_budget_state.record_udp_channel_drop();
+            return;
+        }
         if flow.to_remote.try_send(packet.payload).is_err() {
+            flow_budget_state.release_udp_packet(payload_len);
             flow_budget_state.record_udp_channel_drop();
             flows.remove(&key);
         }
@@ -4205,7 +4326,7 @@ async fn bridge_udp_flow(
     provenance: FakeIpTargetProvenance,
     first_packet: Bytes,
     context: TunRuntimeContext,
-    mut from_stack: mpsc::Receiver<Bytes>,
+    mut from_stack: UdpPayloadReceiver,
     mut shutdown: watch::Receiver<bool>,
     udp_timing_start: Option<StdInstant>,
     _task_permit: OwnedSemaphorePermit,
@@ -4403,7 +4524,7 @@ async fn bridge_udp_dns_outbound_flow(
     routed_target: Target,
     outbound: DnsOutbound,
     context: TunRuntimeContext,
-    mut from_stack: mpsc::Receiver<Bytes>,
+    mut from_stack: UdpPayloadReceiver,
     mut shutdown: watch::Receiver<bool>,
     first_payload: Bytes,
     mut pending_payloads: VecDeque<Bytes>,
@@ -4492,7 +4613,7 @@ async fn bridge_udp_dns_outbound_flow(
 }
 
 async fn read_first_tun_udp_payload(
-    from_stack: &mut mpsc::Receiver<Bytes>,
+    from_stack: &mut UdpPayloadReceiver,
     shutdown: &mut watch::Receiver<bool>,
 ) -> Option<Bytes> {
     tokio::select! {
@@ -4509,7 +4630,7 @@ async fn read_first_tun_udp_payload(
 
 async fn next_udp_payload(
     pending_payloads: &mut VecDeque<Bytes>,
-    from_stack: &mut mpsc::Receiver<Bytes>,
+    from_stack: &mut UdpPayloadReceiver,
 ) -> Option<Bytes> {
     if let Some(payload) = pending_payloads.pop_front() {
         Some(payload)
@@ -4583,7 +4704,7 @@ async fn sniff_tun_udp_target_with_reassembly(
     target: &Target,
     provenance: FakeIpTargetProvenance,
     first_payload: &[u8],
-    from_stack: &mut mpsc::Receiver<Bytes>,
+    from_stack: &mut UdpPayloadReceiver,
     shutdown: &mut watch::Receiver<bool>,
 ) -> (TunUdpSniffedTarget, VecDeque<Bytes>) {
     let mut pending_payloads = VecDeque::new();
@@ -4705,7 +4826,7 @@ async fn bridge_udp_freedom_flow(
     generation: u64,
     target: Target,
     context: TunRuntimeContext,
-    from_stack: mpsc::Receiver<Bytes>,
+    from_stack: UdpPayloadReceiver,
     shutdown: watch::Receiver<bool>,
     udp_timing_start: Option<StdInstant>,
     first_payload: Bytes,
@@ -4835,7 +4956,7 @@ async fn bridge_udp_freedom_flow_loop<T>(
     target_addr: SocketAddr,
     socket: UdpSocket,
     context: TunRuntimeContext,
-    mut from_stack: mpsc::Receiver<Bytes>,
+    mut from_stack: UdpPayloadReceiver,
     mut shutdown: watch::Receiver<bool>,
     timing: &mut T,
     first_payload: Bytes,
@@ -4943,7 +5064,7 @@ async fn bridge_udp_vless_flow(
     target: Target,
     outbound: Box<VlessTcpOutbound>,
     context: TunRuntimeContext,
-    from_stack: mpsc::Receiver<Bytes>,
+    from_stack: UdpPayloadReceiver,
     shutdown: watch::Receiver<bool>,
     udp_timing_start: Option<StdInstant>,
     first_payload: Bytes,
@@ -5052,7 +5173,7 @@ async fn bridge_udp_vless_flow_loop<R, W, T>(
     generation: u64,
     target: Target,
     context: TunRuntimeContext,
-    mut from_stack: mpsc::Receiver<Bytes>,
+    mut from_stack: UdpPayloadReceiver,
     mut shutdown: watch::Receiver<bool>,
     framing: VlessUdpFraming,
     remote_reader: &mut R,
@@ -5885,25 +6006,36 @@ fn ipv6_transport_checksum(
 #[derive(Debug)]
 pub(crate) struct PacketDevice {
     mtu: usize,
+    memory_budget: Arc<TunByteBudget>,
     inbound: VecDeque<Bytes>,
     outbound: VecDeque<Bytes>,
 }
 
 impl PacketDevice {
+    #[allow(dead_code)]
     pub(crate) fn new(mtu: usize) -> Self {
+        Self::with_memory_budget(mtu, Arc::new(TunByteBudget::new(8 * 1024 * 1024)))
+    }
+
+    pub(crate) fn with_memory_budget(mtu: usize, memory_budget: Arc<TunByteBudget>) -> Self {
         Self {
             mtu,
+            memory_budget,
             inbound: VecDeque::new(),
             outbound: VecDeque::new(),
         }
     }
 
     pub(crate) fn push_inbound(&mut self, packet: Bytes) {
-        self.inbound.push_back(packet);
+        if self.memory_budget.try_reserve(packet.len()) {
+            self.inbound.push_back(packet);
+        }
     }
 
     pub(crate) fn push_outbound(&mut self, packet: Bytes) {
-        self.outbound.push_back(packet);
+        if self.memory_budget.try_reserve(packet.len()) {
+            self.outbound.push_back(packet);
+        }
     }
 
     fn front_outbound(&self) -> Option<&Bytes> {
@@ -5915,7 +6047,20 @@ impl PacketDevice {
     }
 
     pub(crate) fn pop_outbound(&mut self) -> Option<Bytes> {
-        self.outbound.pop_front()
+        let packet = self.outbound.pop_front()?;
+        self.memory_budget.release(packet.len());
+        Some(packet)
+    }
+}
+
+impl Drop for PacketDevice {
+    fn drop(&mut self) {
+        for packet in self.inbound.drain(..) {
+            self.memory_budget.release(packet.len());
+        }
+        for packet in self.outbound.drain(..) {
+            self.memory_budget.release(packet.len());
+        }
     }
 }
 
@@ -5931,11 +6076,12 @@ impl Device for PacketDevice {
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let packet = self.inbound.pop_front()?;
+        self.memory_budget.release(packet.len());
         Some((
             PacketRxToken { packet },
             PacketTxToken {
                 mtu: self.mtu,
-                outbound: &mut self.outbound,
+                device: self,
             },
         ))
     }
@@ -5943,7 +6089,7 @@ impl Device for PacketDevice {
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         Some(PacketTxToken {
             mtu: self.mtu,
-            outbound: &mut self.outbound,
+            device: self,
         })
     }
 
@@ -5974,7 +6120,7 @@ impl RxToken for PacketRxToken {
 #[derive(Debug)]
 pub(crate) struct PacketTxToken<'a> {
     mtu: usize,
-    outbound: &'a mut VecDeque<Bytes>,
+    device: &'a mut PacketDevice,
 }
 
 impl TxToken for PacketTxToken<'_> {
@@ -5984,7 +6130,7 @@ impl TxToken for PacketTxToken<'_> {
     {
         let mut packet = vec![0; len.min(self.mtu)];
         let result = f(&mut packet);
-        self.outbound.push_back(Bytes::from(packet));
+        self.device.push_outbound(Bytes::from(packet));
         result
     }
 }
@@ -6752,6 +6898,21 @@ mod tests {
             device.pop_outbound(),
             Some(Bytes::from_static(&[0x45, 0x00, 0x00, 0x14]))
         );
+    }
+
+    #[test]
+    fn packet_device_respects_shared_byte_budget_and_releases_on_flush() {
+        let budget = Arc::new(TunByteBudget::new(4));
+        let mut device = PacketDevice::with_memory_budget(1500, Arc::clone(&budget));
+
+        device.push_outbound(Bytes::from_static(b"abcd"));
+        device.push_outbound(Bytes::from_static(b"e"));
+
+        assert_eq!(budget.used_bytes(), 4);
+        assert_eq!(device.pop_outbound(), Some(Bytes::from_static(b"abcd")));
+        assert_eq!(budget.used_bytes(), 0);
+        device.push_outbound(Bytes::from_static(b"e"));
+        assert_eq!(budget.used_bytes(), 1);
     }
 
     #[test]

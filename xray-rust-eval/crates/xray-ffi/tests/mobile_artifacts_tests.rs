@@ -294,6 +294,14 @@ fn apple_packet_pump_reuses_poll_storage_and_fails_outside_worker_queue() {
     assert!(core.contains("maximumPacketBatchBytes"));
     assert!(pump.contains("storage: pollStorage"));
     assert!(pump.contains("recordRecoverablePushFailure"));
+    assert!(pump.contains("try core.cancelTunPoll()"));
+    let cancel_poll = pump
+        .find("try core.cancelTunPoll()")
+        .expect("packet pump must cancel the Rust poll before joining");
+    let join_poll = pump
+        .find("pollLoopGroup.wait()")
+        .expect("packet pump must join the poll loop");
+    assert!(cancel_poll < join_poll);
     assert!(pump.contains("XrayPacketTunnelTerminalFailureDelivery"));
     assert!(pump.contains("queue.async"));
     assert!(provider.contains("cancelTunnelWithError(error)"));

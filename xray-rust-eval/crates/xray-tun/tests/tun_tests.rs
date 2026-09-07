@@ -1,8 +1,8 @@
 use bytes::Bytes;
 use xray_tun::{
-    TunConfig, TunEndpoint, TunError, TunStats, TunTcpBufferState, TunTcpFlowSummaryEvent,
-    TunTcpOpenErrorEvent, TunTcpRemoteWriteSlowEvent, TunTcpSlowFlowEvent, TunTcpSlowFlowKind,
-    TunUdpQuicBlockedEvent, TunUdpResponseGapEvent, TunUdpSlowFlowEvent,
+    TunByteBudget, TunConfig, TunEndpoint, TunError, TunStats, TunTcpBufferState,
+    TunTcpFlowSummaryEvent, TunTcpOpenErrorEvent, TunTcpRemoteWriteSlowEvent, TunTcpSlowFlowEvent,
+    TunTcpSlowFlowKind, TunUdpQuicBlockedEvent, TunUdpResponseGapEvent, TunUdpSlowFlowEvent,
 };
 
 #[tokio::test]
@@ -27,6 +27,37 @@ async fn tun_endpoint_moves_packets_in_both_directions() {
         tun.poll_outbound().await.unwrap(),
         Bytes::from_static(&[0x60, 0, 0, 0])
     );
+}
+
+#[tokio::test]
+async fn tun_endpoint_shares_a_byte_budget_across_directions_and_releases_on_poll() {
+    let budget = std::sync::Arc::new(TunByteBudget::new(4));
+    let tun = TunEndpoint::new_with_queue_depths_and_budget(
+        TunConfig {
+            mtu: 1500,
+            queue_depth: 4,
+        },
+        4,
+        4,
+        std::sync::Arc::clone(&budget),
+    );
+
+    tun.push_inbound(Bytes::from_static(b"abcd")).await.unwrap();
+    assert_eq!(budget.used_bytes(), 4);
+    assert_eq!(
+        tun.push_outbound(Bytes::from_static(b"e")).await,
+        Err(TunError::QueueFull)
+    );
+
+    assert_eq!(
+        tun.poll_inbound().await.unwrap(),
+        Bytes::from_static(b"abcd")
+    );
+    assert_eq!(budget.used_bytes(), 0);
+    tun.push_outbound(Bytes::from_static(b"e")).await.unwrap();
+    assert_eq!(budget.used_bytes(), 1);
+    assert_eq!(tun.poll_outbound().await.unwrap(), Bytes::from_static(b"e"));
+    assert_eq!(budget.used_bytes(), 0);
 }
 
 #[tokio::test]

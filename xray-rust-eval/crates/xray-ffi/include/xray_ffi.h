@@ -242,6 +242,10 @@ XrayStatus xray_core_config_warnings(
     size_t *written,
     XrayError **error);
 XrayStatus xray_core_start(XrayCoreHandle *handle, XrayError **error);
+/* Lifecycle protocol: the host must first stop accepting new data, call
+ * xray_core_cancel_tun_poll, wait for every poll/read call to return, and only
+ * then call xray_core_stop followed by xray_core_free. Do not call lifecycle
+ * functions concurrently with data-path calls. */
 XrayStatus xray_core_stop(XrayCoreHandle *handle, XrayError **error);
 /* Wakes any thread currently blocked in xray_tun_poll_packets or
  * xray_tun_poll_packet on this handle. Automatically invoked during

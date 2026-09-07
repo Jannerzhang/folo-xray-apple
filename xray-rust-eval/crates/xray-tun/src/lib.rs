@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Mutex as StdMutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 
 use bytes::Bytes;
 use thiserror::Error;
@@ -13,6 +13,83 @@ const TCP_OPEN_ERROR_EVENT_CAPACITY: usize = 64;
 const UDP_SLOW_FLOW_EVENT_CAPACITY: usize = 64;
 const UDP_RESPONSE_GAP_EVENT_CAPACITY: usize = 64;
 const UDP_QUIC_BLOCKED_EVENT_CAPACITY: usize = 256;
+const DEFAULT_QUEUE_BYTE_LIMIT: usize = 8 * 1024 * 1024;
+
+/// Shared byte ledger for TUN queues and the in-process packet device.
+/// Packet counts alone are insufficient because each accepted packet can be
+/// close to the MTU. Reservations are atomic so concurrent producers cannot
+/// collectively exceed the physical-memory ceiling.
+#[derive(Debug)]
+pub struct TunByteBudget {
+    limit_bytes: usize,
+    used_bytes: AtomicUsize,
+    peak_bytes: AtomicUsize,
+}
+
+impl TunByteBudget {
+    pub fn new(limit_bytes: usize) -> Self {
+        Self {
+            limit_bytes: limit_bytes.max(1),
+            used_bytes: AtomicUsize::new(0),
+            peak_bytes: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn limit_bytes(&self) -> usize {
+        self.limit_bytes
+    }
+
+    pub fn used_bytes(&self) -> usize {
+        self.used_bytes.load(Ordering::Acquire)
+    }
+
+    pub fn peak_bytes(&self) -> usize {
+        self.peak_bytes.load(Ordering::Acquire)
+    }
+
+    pub fn available_bytes(&self) -> usize {
+        self.limit_bytes.saturating_sub(self.used_bytes())
+    }
+
+    pub fn try_reserve(&self, bytes: usize) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+
+        let mut current = self.used_bytes.load(Ordering::Acquire);
+        loop {
+            let Some(next) = current.checked_add(bytes) else {
+                return false;
+            };
+            if next > self.limit_bytes {
+                return false;
+            }
+            match self.used_bytes.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    self.peak_bytes.fetch_max(next, Ordering::Relaxed);
+                    return true;
+                }
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    pub fn release(&self, bytes: usize) {
+        if bytes == 0 {
+            return;
+        }
+        let _ = self
+            .used_bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                Some(used.saturating_sub(bytes))
+            });
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TunConfig {
@@ -190,6 +267,7 @@ pub struct TunUdpQuicBlockedEvent {
 
 pub struct TunEndpoint {
     config: TunConfig,
+    memory_budget: Arc<TunByteBudget>,
     inbound_tx: mpsc::Sender<Bytes>,
     inbound_rx: Mutex<mpsc::Receiver<Bytes>>,
     outbound_tx: mpsc::Sender<Bytes>,
@@ -288,6 +366,26 @@ impl TunEndpoint {
         inbound_queue_depth: usize,
         outbound_queue_depth: usize,
     ) -> Self {
+        let max_packets = inbound_queue_depth
+            .max(1)
+            .saturating_add(outbound_queue_depth.max(1));
+        let default_limit = max_packets
+            .saturating_mul(config.mtu.max(1))
+            .clamp(config.mtu.max(1), DEFAULT_QUEUE_BYTE_LIMIT);
+        Self::new_with_queue_depths_and_budget(
+            config,
+            inbound_queue_depth,
+            outbound_queue_depth,
+            Arc::new(TunByteBudget::new(default_limit)),
+        )
+    }
+
+    pub fn new_with_queue_depths_and_budget(
+        config: TunConfig,
+        inbound_queue_depth: usize,
+        outbound_queue_depth: usize,
+        memory_budget: Arc<TunByteBudget>,
+    ) -> Self {
         let inbound_queue_depth = inbound_queue_depth.max(1);
         let outbound_queue_depth = outbound_queue_depth.max(1);
         let (inbound_tx, inbound_rx) = mpsc::channel(inbound_queue_depth);
@@ -295,6 +393,7 @@ impl TunEndpoint {
 
         Self {
             config,
+            memory_budget,
             inbound_tx,
             inbound_rx: Mutex::new(inbound_rx),
             outbound_tx,
@@ -411,6 +510,10 @@ impl TunEndpoint {
         self.config.mtu
     }
 
+    pub fn memory_budget(&self) -> Arc<TunByteBudget> {
+        Arc::clone(&self.memory_budget)
+    }
+
     /// Waits for at least one outbound packet (or queue close), then drains up
     /// to `max_packets` without further waiting. Holding the receiver lock for
     /// the whole batch keeps per-packet locking off the host packet pump path.
@@ -441,6 +544,7 @@ impl TunEndpoint {
             if self.closed.load(Ordering::Acquire) {
                 match rx.try_recv() {
                     Ok(packet) => {
+                        self.memory_budget.release(packet.len());
                         packets.push(packet);
                         break;
                     }
@@ -451,6 +555,7 @@ impl TunEndpoint {
             tokio::select! {
                 packet = rx.recv() => match packet {
                     Some(packet) => {
+                        self.memory_budget.release(packet.len());
                         packets.push(packet);
                         break;
                     }
@@ -462,7 +567,10 @@ impl TunEndpoint {
 
         while packets.len() < max_packets {
             match rx.try_recv() {
-                Ok(packet) => packets.push(packet),
+                Ok(packet) => {
+                    self.memory_budget.release(packet.len());
+                    packets.push(packet);
+                }
                 Err(_) => break,
             }
         }
@@ -973,6 +1081,11 @@ impl TunEndpoint {
             });
         }
 
+        if !self.memory_budget.try_reserve(len) {
+            self.record_drop(direction);
+            return Err(TunError::QueueFull);
+        }
+
         let send_result = match direction {
             Direction::Inbound => self.inbound_tx.try_send(packet),
             Direction::Outbound => self.outbound_tx.try_send(packet),
@@ -995,10 +1108,14 @@ impl TunEndpoint {
                 Ok(())
             }
             Err(mpsc::error::TrySendError::Full(_)) => {
+                self.memory_budget.release(len);
                 self.record_drop(direction);
                 Err(TunError::QueueFull)
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => Err(TunError::QueueClosed),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                self.memory_budget.release(len);
+                Err(TunError::QueueClosed)
+            }
         }
     }
 
@@ -1010,7 +1127,10 @@ impl TunEndpoint {
 
             if self.closed.load(Ordering::Acquire) {
                 return match rx.try_recv() {
-                    Ok(packet) => Ok(packet),
+                    Ok(packet) => {
+                        self.memory_budget.release(packet.len());
+                        Ok(packet)
+                    }
                     Err(
                         mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected,
                     ) => Err(TunError::QueueClosed),
@@ -1018,7 +1138,11 @@ impl TunEndpoint {
             }
 
             tokio::select! {
-                packet = rx.recv() => return packet.ok_or(TunError::QueueClosed),
+                packet = rx.recv() => {
+                    let packet = packet.ok_or(TunError::QueueClosed)?;
+                    self.memory_budget.release(packet.len());
+                    return Ok(packet);
+                },
                 () = closed => {}
             }
         }
@@ -1033,7 +1157,10 @@ impl TunEndpoint {
         };
 
         match rx.try_recv() {
-            Ok(packet) => Ok(Some(packet)),
+            Ok(packet) => {
+                self.memory_budget.release(packet.len());
+                Ok(Some(packet))
+            }
             Err(mpsc::error::TryRecvError::Empty) if !self.closed.load(Ordering::Acquire) => {
                 Ok(None)
             }
@@ -1068,6 +1195,21 @@ impl TunEndpoint {
         };
         let queued = depth.saturating_sub(capacity);
         max_packets.fetch_max(queued as u64, Ordering::Relaxed);
+    }
+}
+
+impl Drop for TunEndpoint {
+    fn drop(&mut self) {
+        if let Ok(mut rx) = self.inbound_rx.try_lock() {
+            while let Ok(packet) = rx.try_recv() {
+                self.memory_budget.release(packet.len());
+            }
+        }
+        if let Ok(mut rx) = self.outbound_rx.try_lock() {
+            while let Ok(packet) = rx.try_recv() {
+                self.memory_budget.release(packet.len());
+            }
+        }
     }
 }
 

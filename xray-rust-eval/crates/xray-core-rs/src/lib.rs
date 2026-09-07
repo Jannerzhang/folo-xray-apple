@@ -20,7 +20,7 @@ use xray_transport::{
     NameServerPolicy, NameServerTransport, SocketProtector, SystemDnsResolver, TransportDialer,
     TransportError,
 };
-use xray_tun::{TunConfig, TunEndpoint};
+use xray_tun::{TunByteBudget, TunConfig, TunEndpoint};
 
 mod connection;
 mod debug_log;
@@ -215,6 +215,22 @@ impl TunRuntimeOptions {
                     outbound_queue_depth: TUN_OUTBOUND_QUEUE_DEPTH,
                 }
             }
+        }
+    }
+
+    /// Maximum resident packet bytes shared by the TUN endpoint, smoltcp
+    /// device queues, TCP bridge reservations, and UDP bridge queues.
+    pub fn memory_budget_bytes(self) -> usize {
+        match self.profile {
+            TunRuntimeProfile::LowMemory => 24 * 1024 * 1024,
+            TunRuntimeProfile::FoloIOS => 32 * 1024 * 1024,
+            TunRuntimeProfile::Mobile | TunRuntimeProfile::MobilePlus => 64 * 1024 * 1024,
+            TunRuntimeProfile::Desktop => 256 * 1024 * 1024,
+            TunRuntimeProfile::Throughput => 512 * 1024 * 1024,
+            TunRuntimeProfile::Default => match DEFAULT_DNS_RUNTIME_PROFILE {
+                TunRuntimeProfile::Mobile => 64 * 1024 * 1024,
+                _ => 256 * 1024 * 1024,
+            },
         }
     }
 }
@@ -606,13 +622,17 @@ impl Core {
         let outbound_router = Arc::new(OutboundRouter::from_factory(outbound_factory));
         let shutdown = Shutdown::new();
         let tun_queue_options = tun_runtime_options.tun_queue_options();
-        let tun = Arc::new(TunEndpoint::new_with_queue_depths(
+        let memory_budget = Arc::new(TunByteBudget::new(
+            tun_runtime_options.memory_budget_bytes(),
+        ));
+        let tun = Arc::new(TunEndpoint::new_with_queue_depths_and_budget(
             TunConfig {
                 mtu: tun_queue_options.mtu,
                 queue_depth: tun_queue_options.inbound_queue_depth,
             },
             tun_queue_options.inbound_queue_depth,
             tun_queue_options.outbound_queue_depth,
+            memory_budget,
         ));
 
         Ok(Self {

@@ -255,8 +255,17 @@ public final class XrayPacketTunnelPump: @unchecked Sendable {
         if shouldLog {
             XrayMobileLog.info("PacketPump", "Read callbacks drained")
         }
-        // The Rust poll has a bounded wait. Joining without a timeout guarantees
-        // that the provider cannot call core.stop while poll/stats still use it.
+        // Stop owns the lifecycle transition. Cancel the Rust poll on its
+        // control lane before joining the poll loop; the provider must not call
+        // core.stop/free while any poll or stats call still uses the handle.
+        do {
+            try core.cancelTunPoll()
+        } catch {
+            XrayMobileLog.error(
+                "PacketPump",
+                "Failed to cancel Rust poll during stop: \(error)"
+            )
+        }
         pollLoopGroup.wait()
         if shouldLog {
             XrayMobileLog.info("PacketPump", "Packet pump stopped")
