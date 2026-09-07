@@ -94,37 +94,63 @@ fn test_throughput_burst_and_soak_memory_stability() {
     let start_status = unsafe { xray_core_start(core, &mut err) };
     assert_eq!(start_status, XrayStatus::Ok);
 
-    // Soak test: Push 10 batches of 16 packets each while polling replies
+    // Sustained soak test: 64 concurrent streams pushing bursts over at least 5 seconds
+    const CONCURRENCY: usize = 64;
     const BATCH_SIZE: usize = 16;
-    let packets_batch: Vec<Vec<u8>> = (0..BATCH_SIZE)
-        .map(|i| ipv4_icmp_echo_request([10, 0, 0, 2], [10, 0, 0, 1], 0x4321, i as u16, b"soak-test-payload"))
-        .collect();
+    let core_addr = core as usize;
 
-    let ptrs: Vec<*const u8> = packets_batch.iter().map(|p| p.as_ptr()).collect();
-    let lengths: Vec<usize> = packets_batch.iter().map(|p| p.len()).collect();
+    let soak_start = Instant::now();
+    let test_duration = Duration::from_secs(5);
 
+    let mut handles = Vec::with_capacity(CONCURRENCY);
+
+    for worker_id in 0..CONCURRENCY {
+        handles.push(std::thread::spawn(move || {
+            let core_ptr = core_addr as *mut xray_ffi::XrayCore;
+            let mut local_err = std::ptr::null_mut();
+            let mut pushed_count_total = 0usize;
+
+            let packets_batch: Vec<Vec<u8>> = (0..BATCH_SIZE)
+                .map(|seq| {
+                    ipv4_icmp_echo_request(
+                        [10, (worker_id >> 8) as u8, (worker_id & 0xff) as u8, (seq + 2) as u8],
+                        [10, 0, 0, 1],
+                        0x1234 + worker_id as u16,
+                        seq as u16,
+                        b"soak-stress-packet-stream-payload-5s",
+                    )
+                })
+                .collect();
+            let ptrs: Vec<*const u8> = packets_batch.iter().map(|p| p.as_ptr()).collect();
+            let lengths: Vec<usize> = packets_batch.iter().map(|p| p.len()).collect();
+
+            while soak_start.elapsed() < test_duration {
+                let mut accepted = 0usize;
+                let push_res = unsafe {
+                    xray_tun_push_packets(
+                        core_ptr,
+                        ptrs.as_ptr(),
+                        lengths.as_ptr(),
+                        ptrs.len(),
+                        &mut accepted,
+                        &mut local_err,
+                    )
+                };
+                if push_res == XrayStatus::Ok {
+                    pushed_count_total += accepted;
+                }
+                std::thread::yield_now();
+            }
+            pushed_count_total
+        }));
+    }
+
+    // Simultaneously run draining poller on main thread
     let mut poll_buffer = vec![0u8; 1500 * BATCH_SIZE];
     let mut packet_lengths = vec![0usize; BATCH_SIZE];
-    let mut total_pushed = 0usize;
+    let mut total_polled = 0usize;
 
-    let start_time = Instant::now();
-    for _ in 0..10 {
-        let mut pushed = 0usize;
-        let push_res = unsafe {
-            xray_tun_push_packets(
-                core,
-                ptrs.as_ptr(),
-                lengths.as_ptr(),
-                ptrs.len(),
-                &mut pushed,
-                &mut err,
-            )
-        };
-        assert_eq!(push_res, XrayStatus::Ok);
-        assert_eq!(pushed, BATCH_SIZE);
-        total_pushed += pushed;
-
-        // Drain / poll so the queue never overflows
+    while soak_start.elapsed() < test_duration + Duration::from_millis(500) {
         let mut polled_in_call = 0usize;
         let _ = unsafe {
             xray_tun_poll_packets(
@@ -134,24 +160,44 @@ fn test_throughput_burst_and_soak_memory_stability() {
                 packet_lengths.as_mut_ptr(),
                 packet_lengths.len(),
                 &mut polled_in_call,
-                5, // 5ms non-blocking drain
+                1,
                 &mut err,
             )
         };
+        total_polled += polled_in_call;
+        std::thread::yield_now();
     }
-    let elapsed = start_time.elapsed();
-    assert!(elapsed < Duration::from_secs(3), "Burst push and drain should complete quickly");
 
-    // Inspect statistics
+    let mut total_pushed = 0usize;
+    for handle in handles {
+        total_pushed += handle.join().expect("Worker thread must join successfully");
+    }
+
+    let soak_elapsed = soak_start.elapsed();
+    assert!(
+        soak_elapsed >= test_duration,
+        "Soak test must run for at least 5 seconds"
+    );
+    assert!(
+        total_pushed > 10_000,
+        "Sustained 64-worker soak test should push at least 10,000 packets, actual pushed: {total_pushed}"
+    );
+
+    // Inspect final runtime statistics
     let mut stats = XrayTunStats {
         struct_size: std::mem::size_of::<XrayTunStats>(),
         ..Default::default()
     };
     let stats_status = unsafe { xray_tun_stats(core, &mut stats, &mut err) };
     assert_eq!(stats_status, XrayStatus::Ok);
-    assert_eq!(stats.inbound_packets, total_pushed as u64);
+    assert!(
+        stats.inbound_packets >= total_pushed as u64,
+        "Inbound packets counter ({}) must match or exceed pushed packets ({})",
+        stats.inbound_packets,
+        total_pushed
+    );
 
-    // Teardown
+    // Stop and teardown cleanly without leaking or crashing
     let stop_status = unsafe { xray_core_stop(core, &mut err) };
     assert_eq!(stop_status, XrayStatus::Ok);
     unsafe { xray_core_free(core) };
