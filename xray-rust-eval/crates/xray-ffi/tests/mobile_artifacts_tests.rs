@@ -733,6 +733,20 @@ fn apple_adapter_build_script_covers_swiftpm_host_build() {
 }
 
 #[test]
+fn shared_profile_fixture_check_is_explicitly_cross_repository() {
+    let script = fs::read_to_string(
+        workspace_root().join("scripts/check-shared-profile-fixture.sh"),
+    )
+    .expect("read cross-repository profile fixture check");
+
+    assert!(script.contains("APP_ROOT"));
+    assert!(script.contains("Tests/FoloPacketTunnelTests/Resources/shared_vless_reality_golden.json"));
+    assert!(script.contains("crates/xray-config/tests/fixtures/shared_vless_reality_golden.json"));
+    assert!(script.contains("cmp -s"));
+    assert!(script.contains("shasum -a 256"));
+}
+
+#[test]
 fn apple_adapter_link_script_covers_mobile_triples() {
     let script = fs::read_to_string(workspace_root().join("scripts/check-apple-adapter-link.sh"))
         .expect("read Apple adapter link script");
