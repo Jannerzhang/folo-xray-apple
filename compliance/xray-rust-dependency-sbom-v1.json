@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-07T19:58:45+08:00",
+  "generatedAt": "2026-09-07T20:02:17+08:00",
   "sourceRepository": "https://github.com/Jannerzhang/folo-xray-apple.git",
-  "sourceCommit": "a2d44dd4afb6bc4c9b7c056813770e896ceb5a08",
-  "sourceTree": "cef7b002e5446e00210dcbcbab73b54e55a3aef0",
-  "metadataSha256": "6030c4db1020d11af2e67fd373401beda46d19a7e2c49731751beb2986bbaac8",
+  "sourceCommit": "50773d53f680f1f9fcddc608e6d07d70e9b15f76",
+  "sourceTree": "5ffabf6f86ef963ab94989596174c188d11184b8",
+  "metadataSha256": "3f0b570b6da843684bef520312196de9734b9f2476bc10c94ed6b8712ed62450",
   "packages": [
     {
       "name": "adler2",
