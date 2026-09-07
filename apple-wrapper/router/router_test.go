@@ -2,6 +2,7 @@
 package router
 
 import (
+	"encoding/json"
 	"net"
 	"testing"
 )
@@ -40,6 +41,90 @@ func TestDomainMatcher(t *testing.T) {
 	}
 }
 
+func TestRouterSecurityBlockPrecedesModesAndPrivateIP(t *testing.T) {
+	for _, mode := range []RouteMode{ModeRule, ModeGlobal, ModeDirect} {
+		r := NewRouter(Config{
+			SchemaVersion:      1,
+			Revision:           42,
+			Mode:               mode,
+			CustomBlockDomains: []string{"domain:blocked.example"},
+			CustomBlockIPs:     []string{"192.168.1.10/32"},
+		})
+
+		byDomain := r.RouteWithContext(RouteContext{
+			Domain:     "blocked.example",
+			IP:         net.ParseIP("8.8.8.8"),
+			Provenance: ProvenanceExplicit,
+		})
+		if byDomain.Action != ActionBlock || byDomain.Reason != ReasonSecurityBlock {
+			t.Fatalf("mode %s: domain block was bypassed: %+v", mode, byDomain)
+		}
+
+		byPrivateIP := r.RouteWithContext(RouteContext{
+			IP:         net.ParseIP("192.168.1.10"),
+			Provenance: ProvenanceIPSet,
+		})
+		if byPrivateIP.Action != ActionBlock || byPrivateIP.Reason != ReasonSecurityBlock {
+			t.Fatalf("mode %s: private-IP block was bypassed: %+v", mode, byPrivateIP)
+		}
+	}
+}
+
+func TestRouterOverlappingRulesUseSecurityThenProxyPriority(t *testing.T) {
+	r := NewRouter(Config{
+		SchemaVersion:       1,
+		Revision:            9,
+		Mode:                ModeRule,
+		CustomDirectDomains: []string{"domain:overlap.example"},
+		CustomProxyDomains:  []string{"domain:overlap.example"},
+		CustomBlockDomains:  []string{"domain:overlap.example"},
+		CustomDirectIPs:     []string{"203.0.113.0/24"},
+		CustomProxyIPs:      []string{"203.0.113.0/25"},
+	})
+
+	domain := r.RouteWithContext(RouteContext{Domain: "overlap.example", Provenance: ProvenanceExplicit})
+	if domain.Action != ActionBlock || domain.Reason != ReasonSecurityBlock {
+		t.Fatalf("overlapping domain rules must block: %+v", domain)
+	}
+
+	ip := r.RouteWithContext(RouteContext{IP: net.ParseIP("203.0.113.10"), Provenance: ProvenanceIPSet})
+	if ip.Action != ActionProxy || ip.Reason != ReasonCustomIP {
+		t.Fatalf("overlapping IP rules must prefer proxy over direct: %+v", ip)
+	}
+}
+
+func TestRouteDecisionCarriesCrossCoreEnvelope(t *testing.T) {
+	r := NewRouter(Config{SchemaVersion: 1, Revision: 17, Mode: ModeRule, CustomProxyDomains: []string{"domain:proxy.example"}})
+	decision := r.RouteWithContext(RouteContext{
+		Domain:     "proxy.example",
+		Port:       443,
+		Network:    "tcp",
+		Provenance: ProvenanceSniffed,
+	})
+	if decision.Action != ActionProxy || decision.Reason != ReasonSniffedDomain || decision.Provenance != ProvenanceSniffed {
+		t.Fatalf("sniffed decision lost its envelope: %+v", decision)
+	}
+	if decision.Revision != 17 || decision.SchemaVersion != 1 {
+		t.Fatalf("decision revision/schema mismatch: %+v", decision)
+	}
+	payload, err := json.Marshal(decision)
+	if err != nil {
+		t.Fatalf("marshal decision: %v", err)
+	}
+	if got := string(payload); got != `{"schemaVersion":1,"revision":17,"action":"proxy","reason":"sniffed_domain","provenance":"sniffed_domain","matched":"proxy.example"}` {
+		t.Fatalf("unexpected decision JSON: %s", got)
+	}
+}
+
+func TestRouterValidationRejectsUnsupportedPolicyValues(t *testing.T) {
+	if _, err := NewValidatedRouter(Config{SchemaVersion: 2, Mode: ModeRule}); err == nil {
+		t.Fatal("unsupported schema version must be rejected")
+	}
+	if _, err := NewValidatedRouter(Config{SchemaVersion: 1, Mode: ModeRule, CustomDirectIPs: []string{"not-an-ip"}}); err == nil {
+		t.Fatal("invalid IP rule must be rejected")
+	}
+}
+
 func TestIPMatcher(t *testing.T) {
 	im := NewIPMatcher()
 	_ = im.AddCIDR("192.168.0.0/16", ActionDirect)
@@ -71,7 +156,7 @@ func TestIPMatcher(t *testing.T) {
 
 func TestRouterModes(t *testing.T) {
 	cfg := Config{
-		Mode: ModeRule,
+		Mode:                ModeRule,
 		CustomDirectDomains: []string{"custom-direct.com"},
 		CustomBlockDomains:  []string{"custom-block.com"},
 	}
@@ -211,4 +296,3 @@ func TestRouteWithReasonAndStats(t *testing.T) {
 		t.Errorf("expected TotalBlock=0, got %d", stats.TotalBlock)
 	}
 }
-

@@ -9,10 +9,10 @@ import (
 	"net"
 	"testing"
 
+	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 	"github.com/sagernet/gvisor/pkg/tcpip/transport/tcp"
 	"github.com/sagernet/gvisor/pkg/tcpip/transport/udp"
 	"github.com/xtls/xray-core/core"
-	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
 
 func TestNetstackDiagnostics_ConcurrencyAndRejection(t *testing.T) {
@@ -112,5 +112,8 @@ func TestNetstackDiagnostics_ConcurrencyAndRejection(t *testing.T) {
 	}
 	if _, ok := parsed["gcCycleCount"]; !ok {
 		t.Errorf("missing gcCycleCount in JSON")
+	}
+	if _, ok := parsed["routePolicyRevision"]; !ok {
+		t.Errorf("missing routePolicyRevision in JSON")
 	}
 }

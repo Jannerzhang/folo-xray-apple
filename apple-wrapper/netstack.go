@@ -29,22 +29,22 @@ import (
 	"github.com/sagernet/gvisor/pkg/tcpip/transport/udp"
 	"github.com/sagernet/gvisor/pkg/waiter"
 
+	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/main/folotun"
-	"github.com/Jannerzhang/folo-xray-apple/apple-wrapper/router"
 )
 
 const (
-	netstackNICID            tcpip.NICID = 1
-	netstackMTU                          = 1500
-	netstackPacketQueueDepth             = 64
-	netstackTCPReceiveWindow             = 16 * 1024
-	netstackMaxTCPAccepts                = 16
-	netstackMaxPacketSize                = 64 * 1024
-	netstackMaxConcurrentTCP             = 48
-	netstackMaxConcurrentUDP             = 48
-	netstackCopyBufferSize               = 4 * 1024
-	netstackTCPHalfCloseGrace            = 1 * time.Second
+	netstackNICID             tcpip.NICID = 1
+	netstackMTU                           = 1500
+	netstackPacketQueueDepth              = 64
+	netstackTCPReceiveWindow              = 16 * 1024
+	netstackMaxTCPAccepts                 = 16
+	netstackMaxPacketSize                 = 64 * 1024
+	netstackMaxConcurrentTCP              = 48
+	netstackMaxConcurrentUDP              = 48
+	netstackCopyBufferSize                = 4 * 1024
+	netstackTCPHalfCloseGrace             = 1 * time.Second
 )
 
 var (
@@ -69,6 +69,9 @@ type netstackRuntime struct {
 
 	readMu  sync.Mutex
 	pending *stack.PacketBuffer
+
+	routeMu           sync.RWMutex
+	lastRouteDecision *router.RouteDecision
 
 	work sync.WaitGroup
 
@@ -108,25 +111,28 @@ func updatePeak(peak *atomic.Uint64, current uint64) {
 }
 
 type NetstackDiagnostics struct {
-	TCPActive            uint64            `json:"tcpActive"`
-	TCPPeak              uint64            `json:"tcpPeak"`
-	TCPRejected          uint64            `json:"tcpRejected"`
-	TCPPendingOpen       uint64            `json:"tcpPendingOpen"`
-	TCPHalfClose         uint64            `json:"tcpHalfClose"`
-	TCPHalfCloseReleased uint64            `json:"tcpHalfCloseReleased"`
-	TCPTerminated        uint64            `json:"tcpTerminated"`
-	UDPActive            uint64            `json:"udpActive"`
-	UDPPeak              uint64            `json:"udpPeak"`
-	UDPRejected          uint64            `json:"udpRejected"`
-	UDPTerminated        uint64            `json:"udpTerminated"`
-	UDPIdleReclaimed     uint64            `json:"udpIdleReclaimed"`
-	QueueDrops           uint64            `json:"queueDrops"`
-	RouteStats           router.RouteStats `json:"routeStats"`
-	GCCycleCount         uint32            `json:"gcCycleCount"`
-	GCPauseTotalNs       uint64            `json:"gcPauseTotalNs"`
-	HeapAllocBytes       uint64            `json:"heapAllocBytes"`
-	HeapSysBytes         uint64            `json:"heapSysBytes"`
-	GoroutineCount       int               `json:"goroutineCount"`
+	TCPActive            uint64                `json:"tcpActive"`
+	TCPPeak              uint64                `json:"tcpPeak"`
+	TCPRejected          uint64                `json:"tcpRejected"`
+	TCPPendingOpen       uint64                `json:"tcpPendingOpen"`
+	TCPHalfClose         uint64                `json:"tcpHalfClose"`
+	TCPHalfCloseReleased uint64                `json:"tcpHalfCloseReleased"`
+	TCPTerminated        uint64                `json:"tcpTerminated"`
+	UDPActive            uint64                `json:"udpActive"`
+	UDPPeak              uint64                `json:"udpPeak"`
+	UDPRejected          uint64                `json:"udpRejected"`
+	UDPTerminated        uint64                `json:"udpTerminated"`
+	UDPIdleReclaimed     uint64                `json:"udpIdleReclaimed"`
+	QueueDrops           uint64                `json:"queueDrops"`
+	RouteStats           router.RouteStats     `json:"routeStats"`
+	RoutePolicySchema    int                   `json:"routePolicySchemaVersion"`
+	RoutePolicyRevision  uint64                `json:"routePolicyRevision"`
+	LastRouteDecision    *router.RouteDecision `json:"lastRouteDecision,omitempty"`
+	GCCycleCount         uint32                `json:"gcCycleCount"`
+	GCPauseTotalNs       uint64                `json:"gcPauseTotalNs"`
+	HeapAllocBytes       uint64                `json:"heapAllocBytes"`
+	HeapSysBytes         uint64                `json:"heapSysBytes"`
+	GoroutineCount       int                   `json:"goroutineCount"`
 }
 
 func (n *netstackRuntime) Diagnostics() NetstackDiagnostics {
@@ -137,6 +143,13 @@ func (n *netstackRuntime) Diagnostics() NetstackDiagnostics {
 	if n.router != nil {
 		routeStats = n.router.Stats()
 	}
+	policySchema, policyRevision := 0, uint64(0)
+	if n.router != nil {
+		policySchema, policyRevision = n.router.PolicyIdentity()
+	}
+	n.routeMu.RLock()
+	lastRouteDecision := n.lastRouteDecision
+	n.routeMu.RUnlock()
 
 	return NetstackDiagnostics{
 		TCPActive:            n.tcpActive.Load(),
@@ -153,6 +166,9 @@ func (n *netstackRuntime) Diagnostics() NetstackDiagnostics {
 		UDPIdleReclaimed:     n.udpIdleReclaimed.Load(),
 		QueueDrops:           n.queueDrops.Load(),
 		RouteStats:           routeStats,
+		RoutePolicySchema:    policySchema,
+		RoutePolicyRevision:  policyRevision,
+		LastRouteDecision:    lastRouteDecision,
 		GCCycleCount:         mem.NumGC,
 		GCPauseTotalNs:       mem.PauseTotalNs,
 		HeapAllocBytes:       mem.Alloc,
@@ -161,6 +177,11 @@ func (n *netstackRuntime) Diagnostics() NetstackDiagnostics {
 	}
 }
 
+func (n *netstackRuntime) recordRouteDecision(decision router.RouteDecision) {
+	n.routeMu.Lock()
+	n.lastRouteDecision = &decision
+	n.routeMu.Unlock()
+}
 
 type netstackPacketNotification struct {
 	ready chan struct{}
@@ -432,7 +453,15 @@ func (n *netstackRuntime) proxyTCP(inbound net.Conn, destination string, port ui
 
 	// 2. Routing decision
 	parsedIP := net.ParseIP(destination)
-	action := n.router.Route(sniffedDomain, parsedIP, port)
+	decision := n.router.RouteWithContext(router.RouteContext{
+		Domain:     sniffedDomain,
+		IP:         parsedIP,
+		Port:       port,
+		Network:    "tcp",
+		Provenance: router.ProvenanceSniffed,
+	})
+	n.recordRouteDecision(decision)
+	action := decision.Action
 
 	if action == router.ActionBlock {
 		return
@@ -520,7 +549,14 @@ func (n *netstackRuntime) handleUDP(request *udp.ForwarderRequest) bool {
 	}
 
 	parsedIP := net.ParseIP(id.LocalAddress.String())
-	action := n.router.Route("", parsedIP, id.LocalPort)
+	decision := n.router.RouteWithContext(router.RouteContext{
+		IP:         parsedIP,
+		Port:       id.LocalPort,
+		Network:    "udp",
+		Provenance: router.ProvenanceIPSet,
+	})
+	n.recordRouteDecision(decision)
+	action := decision.Action
 	if action == router.ActionBlock {
 		n.udpActive.Add(^uint64(0))
 		<-n.udpTokens
@@ -759,4 +795,3 @@ func getNetstackDiagnosticsJSON() string {
 	}
 	return string(payload)
 }
-
