@@ -3415,7 +3415,9 @@ fn build_tcp_outbound(outbound: &OutboundConfig) -> Result<TcpOutbound, CoreErro
     }
 
     match &outbound.settings {
-        OutboundSettings::Dns(_) => Err(CoreError::NoSupportedOutbound),
+        OutboundSettings::Dns(_) | OutboundSettings::Blackhole => {
+            Err(CoreError::NoSupportedOutbound)
+        }
         OutboundSettings::Freedom => {
             if !stream_transport_is_dialable(&outbound.stream) {
                 return Err(CoreError::UnsupportedOutboundNetwork);
@@ -3433,7 +3435,9 @@ fn build_tcp_outbound(outbound: &OutboundConfig) -> Result<TcpOutbound, CoreErro
 #[cfg(test)]
 fn build_udp_outbound(outbound: &OutboundConfig) -> Result<UdpOutbound, CoreError> {
     match &outbound.settings {
-        OutboundSettings::Dns(_) => Err(CoreError::NoSupportedOutbound),
+        OutboundSettings::Dns(_) | OutboundSettings::Blackhole => {
+            Err(CoreError::NoSupportedOutbound)
+        }
         OutboundSettings::Freedom => {
             if !stream_transport_is_dialable(&outbound.stream) {
                 return Err(CoreError::UnsupportedOutboundNetwork);
