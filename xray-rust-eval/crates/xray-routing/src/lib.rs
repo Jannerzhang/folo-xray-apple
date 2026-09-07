@@ -1,12 +1,17 @@
 use std::net::IpAddr;
 use thiserror::Error;
 
+pub mod decision;
+pub mod dns_cache;
 pub mod domain_host_index;
 pub mod domain_matcher;
 pub mod domain_matcher_set;
 pub mod ip_filter;
 pub mod ip_range_set;
+pub mod versioned_policy;
 
+pub use decision::{DomainProvenance, RouteAction, RouteDecision, RouteReason};
+pub use dns_cache::{DnsAttributionCache, DnsAttributionRecord, NAT64_WELL_KNOWN_PREFIX};
 pub use domain_host_index::{DnsHostTarget, DomainHostIndex};
 pub use domain_matcher::{DomainMatcher, DomainNameMode, DomainRegexError, RegexMatcher};
 pub use domain_matcher_set::{DomainMatcherSet, DomainMatcherSetBuilder, DomainMatcherSetError};
@@ -14,6 +19,10 @@ pub use ip_filter::{DnsIpFilter, DnsIpFilterBuilder};
 pub use ip_range_set::{
     canonicalize_ip, Cidr, InvalidCidrPrefix, IpMatcherSet, IpMatcherSetBuilder, IpRangeSet,
     IpRangeSetBuilder, PRIVATE_NETWORKS,
+};
+pub use versioned_policy::{
+    AtomicPolicyHolder, PolicyError, PolicyMode, VersionedRoutingPolicy,
+    VersionedRoutingPolicyBuilder,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

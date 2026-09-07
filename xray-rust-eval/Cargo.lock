@@ -2598,6 +2598,7 @@ dependencies = [
  "aho-corasick",
  "bytes",
  "regex",
+ "sha2",
  "thiserror",
 ]
 
