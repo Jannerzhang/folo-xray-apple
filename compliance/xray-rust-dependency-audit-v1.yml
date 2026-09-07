@@ -14,9 +14,9 @@ scope:
   graphSha256: c08fdaa0a3f8598fe02412e20aac494c12db0b25e4a67d515250f217571d3235
   metadataCommand: "cargo metadata --manifest-path xray-rust-eval/Cargo.toml --locked --format-version 1"
   metadataSha256: 3f0b570b6da843684bef520312196de9734b9f2476bc10c94ed6b8712ed62450
-  sbomSha256: 6507c2d59e07b46d891fd5ebdf49f8df665dbe8a133f18e36841eea9f7d80453
-  sourceCommit: 50773d53f680f1f9fcddc608e6d07d70e9b15f76
-  sourceTree: 5ffabf6f86ef963ab94989596174c188d11184b8
+  sbomSha256: 77bbd839ef57b3a4d39ff1b19ef877e5e5661cc70dbdce69ee34908e1d0be801
+  sourceCommit: 8e56dccb9c487de0d76b640182ad267805ebb743
+  sourceTree: be4680a9ecc5628baf6e5530a46682d8bb5c0c06
 
 approved:
   - "MIT/BSD-2-Clause/BSD-3-Clause/ISC/Apache-2.0"
