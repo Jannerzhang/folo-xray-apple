@@ -966,6 +966,7 @@ impl OutboundGraph {
                 tag: outbound.tag.clone(),
                 kind: match outbound.settings {
                     OutboundSettings::Freedom => OutboundNodeKind::Freedom,
+                    OutboundSettings::Blackhole => OutboundNodeKind::Freedom,
                     OutboundSettings::Vless(_) => OutboundNodeKind::Vless,
                     OutboundSettings::Dns(_) => OutboundNodeKind::Dns,
                 },
@@ -2677,7 +2678,9 @@ impl OutboundFactory {
         }
 
         let compiled = match &outbound.settings {
-            OutboundSettings::Dns(_) => Err(CachedOutboundError::NoSupportedOutbound),
+            OutboundSettings::Dns(_) | OutboundSettings::Blackhole => {
+                Err(CachedOutboundError::NoSupportedOutbound)
+            }
             OutboundSettings::Freedom => {
                 if !stream_transport_is_dialable(&outbound.stream) {
                     return Err(CachedOutboundError::UnsupportedOutboundNetwork);
@@ -2716,7 +2719,9 @@ impl OutboundFactory {
             return Err(CachedOutboundError::UnsupportedOutboundProxyNetwork("UDP"));
         }
         match &outbound.settings {
-            OutboundSettings::Dns(_) => Err(CachedOutboundError::NoSupportedOutbound),
+            OutboundSettings::Dns(_) | OutboundSettings::Blackhole => {
+                Err(CachedOutboundError::NoSupportedOutbound)
+            }
             OutboundSettings::Freedom => {
                 if !stream_transport_is_dialable(&outbound.stream) {
                     return Err(CachedOutboundError::UnsupportedOutboundNetwork);
@@ -2755,9 +2760,9 @@ impl OutboundFactory {
                 DnsOutbound::new_with_stream(settings.clone(), &configured.stream, conn_idle)
                     .map_err(CachedOutboundError::from_core_error)
             }
-            OutboundSettings::Freedom | OutboundSettings::Vless(_) => {
-                Err(CachedOutboundError::NoSupportedOutbound)
-            }
+            OutboundSettings::Freedom
+            | OutboundSettings::Blackhole
+            | OutboundSettings::Vless(_) => Err(CachedOutboundError::NoSupportedOutbound),
         }
     }
 }

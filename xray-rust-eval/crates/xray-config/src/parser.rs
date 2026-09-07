@@ -2767,6 +2767,7 @@ impl Parser<'_> {
             .as_deref()
         {
             Some("freedom") => OutboundProtocol::Freedom,
+            Some("blackhole") => OutboundProtocol::Blackhole,
             Some("dns") => OutboundProtocol::Dns,
             Some("vless") => OutboundProtocol::Vless,
             Some(protocol) => {
@@ -2788,6 +2789,7 @@ impl Parser<'_> {
                 self.validate_freedom_settings(outbound.get("settings"), index);
                 OutboundSettings::Freedom
             }
+            OutboundProtocol::Blackhole => OutboundSettings::Blackhole,
             OutboundProtocol::Dns => {
                 OutboundSettings::Dns(self.parse_dns_outbound_settings(outbound, index)?)
             }
@@ -2816,7 +2818,7 @@ impl Parser<'_> {
                     && vless.users.iter().all(|user| user.encryption == "none")
                     && !vless.server.is_xray_plaintext_server_exempt()
             }
-            OutboundSettings::Freedom | OutboundSettings::Dns(_) => false,
+            OutboundSettings::Freedom | OutboundSettings::Blackhole | OutboundSettings::Dns(_) => false,
         };
         if rejects_plaintext_server {
             self.error(

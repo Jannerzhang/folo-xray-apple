@@ -8,75 +8,7 @@ use xray_config::{
 
 #[test]
 fn test_client_profile_vless_reality_vision_tcp_parses_losslessly() {
-    let client_rendered_json = r#"{
-      "inbounds": [
-        {
-          "tag": "tun-in",
-          "protocol": "tun",
-          "listen": "127.0.0.1",
-          "port": 0,
-          "settings": {}
-        }
-      ],
-      "outbounds": [
-        {
-          "tag": "proxy",
-          "protocol": "vless",
-          "settings": {
-            "vnext": [
-              {
-                "address": "edge.example.com",
-                "port": 443,
-                "users": [
-                  {
-                    "id": "00000000-0000-0000-0000-000000000001",
-                    "encryption": "none",
-                    "flow": "xtls-rprx-vision"
-                  }
-                ]
-              }
-            ]
-          },
-          "streamSettings": {
-            "network": "tcp",
-            "security": "reality",
-            "realitySettings": {
-              "serverName": "www.example.com",
-              "fingerprint": "chrome",
-              "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
-              "shortId": "0123456789abcdef",
-              "spiderX": "/"
-            }
-          }
-        },
-        {
-          "tag": "direct",
-          "protocol": "freedom",
-          "settings": {}
-        }
-      ],
-      "routing": {
-        "domainStrategy": "AsIs",
-        "rules": [
-          {
-            "type": "field",
-            "domain": ["full:captive.apple.com"],
-            "outboundTag": "direct"
-          },
-          {
-            "type": "field",
-            "domain": ["domain:example.com"],
-            "outboundTag": "proxy"
-          },
-          {
-            "type": "field",
-            "ip": ["10.0.0.0/8", "192.168.0.0/16"],
-            "outboundTag": "direct"
-          }
-        ]
-      }
-    }"#;
-
+    let client_rendered_json = include_str!("fixtures/shared_vless_reality_golden.json");
     let parsed = parse_xray_json(client_rendered_json).expect("client rendered config must parse cleanly");
     assert!(parsed.diagnostics.is_empty(), "expected zero diagnostics for valid client config");
 
@@ -86,7 +18,7 @@ fn test_client_profile_vless_reality_vision_tcp_parses_losslessly() {
     assert_eq!(parsed.config.inbounds[0].protocol, InboundProtocol::Tun);
 
     // Verify outbounds
-    assert_eq!(parsed.config.outbounds.len(), 2);
+    assert_eq!(parsed.config.outbounds.len(), 3);
     assert_eq!(parsed.config.outbounds[0].tag.as_deref(), Some("proxy"));
     assert_eq!(parsed.config.outbounds[0].settings.protocol(), OutboundProtocol::Vless);
 
@@ -117,19 +49,26 @@ fn test_client_profile_vless_reality_vision_tcp_parses_losslessly() {
         &[0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]
     );
 
-    // Verify direct outbound
+    // Verify direct and block outbounds
     assert_eq!(parsed.config.outbounds[1].tag.as_deref(), Some("direct"));
     assert!(matches!(parsed.config.outbounds[1].settings, OutboundSettings::Freedom));
+    assert_eq!(parsed.config.outbounds[2].tag.as_deref(), Some("block"));
+    assert!(matches!(parsed.config.outbounds[2].settings, OutboundSettings::Blackhole));
 
-    // Verify routing rules
-    assert_eq!(parsed.config.routing.rules.len(), 3);
-    assert_eq!(parsed.config.routing.rules[0].target, RoutingRuleTarget::Outbound("direct".to_string()));
-    assert!(parsed.config.routing.rules[0].matches_domain(Some("captive.apple.com")));
+    // Verify routing rules (4 rules in golden fixture)
+    assert_eq!(parsed.config.routing.rules.len(), 4);
+    assert_eq!(parsed.config.routing.rules[0].target, RoutingRuleTarget::Outbound("block".to_string()));
+    assert!(parsed.config.routing.rules[0].matches_domain(Some("ads.example")));
+
     assert_eq!(parsed.config.routing.rules[1].target, RoutingRuleTarget::Outbound("proxy".to_string()));
     assert!(parsed.config.routing.rules[1].matches_domain(Some("sub.example.com")));
+
     assert_eq!(parsed.config.routing.rules[2].target, RoutingRuleTarget::Outbound("direct".to_string()));
-    assert!(parsed.config.routing.rules[2].matches_ip(Some(&"10.1.2.3".parse::<IpAddr>().unwrap())));
-    assert!(parsed.config.routing.rules[2].matches_ip(Some(&"192.168.1.1".parse::<IpAddr>().unwrap())));
+    assert!(parsed.config.routing.rules[2].matches_domain(Some("captive.apple.com")));
+
+    assert_eq!(parsed.config.routing.rules[3].target, RoutingRuleTarget::Outbound("direct".to_string()));
+    assert!(parsed.config.routing.rules[3].matches_ip(Some(&"10.1.2.3".parse::<IpAddr>().unwrap())));
+    assert!(parsed.config.routing.rules[3].matches_ip(Some(&"192.168.1.1".parse::<IpAddr>().unwrap())));
 }
 
 #[test]

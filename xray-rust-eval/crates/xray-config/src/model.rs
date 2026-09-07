@@ -540,6 +540,7 @@ pub struct OutboundProxySettings {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutboundProtocol {
     Freedom,
+    Blackhole,
     Dns,
     Vless,
 }
@@ -547,6 +548,7 @@ pub enum OutboundProtocol {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutboundSettings {
     Freedom,
+    Blackhole,
     Dns(DnsOutboundSettings),
     Vless(VlessOutboundSettings),
 }
@@ -555,6 +557,7 @@ impl OutboundSettings {
     pub fn protocol(&self) -> OutboundProtocol {
         match self {
             Self::Freedom => OutboundProtocol::Freedom,
+            Self::Blackhole => OutboundProtocol::Blackhole,
             Self::Dns(_) => OutboundProtocol::Dns,
             Self::Vless(_) => OutboundProtocol::Vless,
         }
