@@ -1,4 +1,5 @@
 use std::net::IpAddr;
+use std::time::{Duration, Instant};
 
 use aes::cipher::{BlockEncrypt, KeyInit};
 use aes::Aes128;
@@ -22,12 +23,161 @@ const QUIC_INITIAL_HP_LEN: usize = 16;
 const QUIC_TAG_LEN: usize = 16;
 const QUIC_HP_SAMPLE_LEN: usize = 16;
 const QUIC_MAX_CRYPTO_STREAM_SIZE: usize = 16 * 1024;
+const QUIC_DEFAULT_REASSEMBLY_MAX_FRAGMENTS: usize = 64;
+const QUIC_DEFAULT_REASSEMBLY_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SniffedTarget {
     pub route_target: Target,
     pub dial_target: Target,
     pub protocol: SniffingDestination,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuicInitialSniReassemblyResult {
+    Pending,
+    Found(String),
+    Invalid,
+    Expired,
+    LimitExceeded,
+}
+
+#[derive(Debug)]
+pub struct QuicInitialSniReassembler {
+    bytes: Vec<u8>,
+    received: Vec<bool>,
+    ranges: Vec<(usize, usize)>,
+    started_at: Instant,
+    max_fragments: usize,
+    timeout: Duration,
+    terminal: Option<QuicInitialSniReassemblyResult>,
+}
+
+impl QuicInitialSniReassembler {
+    pub fn new(started_at: Instant) -> Self {
+        Self::with_limits(
+            started_at,
+            QUIC_MAX_CRYPTO_STREAM_SIZE,
+            QUIC_DEFAULT_REASSEMBLY_MAX_FRAGMENTS,
+            QUIC_DEFAULT_REASSEMBLY_TIMEOUT,
+        )
+    }
+
+    pub fn with_limits(
+        started_at: Instant,
+        max_bytes: usize,
+        max_fragments: usize,
+        timeout: Duration,
+    ) -> Self {
+        let max_bytes = max_bytes.clamp(1, QUIC_MAX_CRYPTO_STREAM_SIZE);
+        let max_fragments = max_fragments.max(1);
+        Self {
+            bytes: vec![0; max_bytes],
+            received: vec![false; max_bytes],
+            ranges: Vec::new(),
+            started_at,
+            max_fragments,
+            timeout,
+            terminal: None,
+        }
+    }
+
+    pub fn push_datagram(&mut self, packet: &[u8], now: Instant) -> QuicInitialSniReassemblyResult {
+        if let Some(result) = &self.terminal {
+            return result.clone();
+        }
+        if now
+            .checked_duration_since(self.started_at)
+            .unwrap_or_default()
+            > self.timeout
+        {
+            return self.finish(QuicInitialSniReassemblyResult::Expired);
+        }
+
+        let Some(header) = parse_quic_initial_header(packet) else {
+            return self.finish(QuicInitialSniReassemblyResult::Invalid);
+        };
+        let Some(keys) = quic_initial_keys(header.version, header.dcid) else {
+            return self.finish(QuicInitialSniReassemblyResult::Invalid);
+        };
+        let Some(unprotected) = unprotect_quic_initial_header(packet, &header, &keys.hp) else {
+            return self.finish(QuicInitialSniReassemblyResult::Invalid);
+        };
+        let Some(plaintext) = decrypt_quic_initial_packet(packet, &unprotected, &keys) else {
+            return self.finish(QuicInitialSniReassemblyResult::Invalid);
+        };
+        let Some(fragments) = collect_quic_crypto_fragments(&plaintext) else {
+            return self.finish(QuicInitialSniReassemblyResult::Invalid);
+        };
+
+        for (offset, fragment) in fragments {
+            if !self.insert_fragment(offset, &fragment) {
+                return self.finish(QuicInitialSniReassemblyResult::LimitExceeded);
+            }
+        }
+
+        let contiguous_end = self.contiguous_end();
+        if contiguous_end > 0 {
+            if let Some(domain) =
+                sniff_tls_client_hello_handshake_sni(&self.bytes[..contiguous_end])
+            {
+                return self.finish(QuicInitialSniReassemblyResult::Found(domain));
+            }
+        }
+        QuicInitialSniReassemblyResult::Pending
+    }
+
+    fn insert_fragment(&mut self, offset: usize, fragment: &[u8]) -> bool {
+        let Some(end) = offset.checked_add(fragment.len()) else {
+            return false;
+        };
+        if end > self.bytes.len() {
+            return false;
+        }
+        for (index, byte) in fragment.iter().enumerate() {
+            let position = offset + index;
+            if self.received[position] && self.bytes[position] != *byte {
+                return false;
+            }
+        }
+
+        for (index, byte) in fragment.iter().enumerate() {
+            let position = offset + index;
+            self.bytes[position] = *byte;
+            self.received[position] = true;
+        }
+
+        let mut merged_start = offset;
+        let mut merged_end = end;
+        let mut merged_ranges = Vec::with_capacity(self.ranges.len() + 1);
+        for &(range_start, range_end) in &self.ranges {
+            if range_end < merged_start || range_start > merged_end {
+                merged_ranges.push((range_start, range_end));
+            } else {
+                merged_start = merged_start.min(range_start);
+                merged_end = merged_end.max(range_end);
+            }
+        }
+        merged_ranges.push((merged_start, merged_end));
+        merged_ranges.sort_unstable_by_key(|(range_start, _)| *range_start);
+        if merged_ranges.len() > self.max_fragments {
+            return false;
+        }
+        self.ranges = merged_ranges;
+        true
+    }
+
+    fn contiguous_end(&self) -> usize {
+        self.received
+            .iter()
+            .position(|received| !received)
+            .unwrap_or(self.received.len())
+    }
+
+    fn finish(&mut self, result: QuicInitialSniReassemblyResult) -> QuicInitialSniReassemblyResult {
+        self.terminal = Some(result.clone());
+        result
+    }
 }
 
 pub(crate) fn should_sniff_tcp(config: Option<&InboundSniffingConfig>) -> bool {
@@ -218,13 +368,12 @@ fn sniff_tls_client_hello_body_sni(body: &[u8]) -> Option<String> {
 }
 
 fn sniff_quic_initial_sni(packet: &[u8]) -> Option<String> {
-    // Single-datagram QUIC v1 Initial sniffing, not general QUIC stream reassembly.
-    let header = parse_quic_initial_header(packet)?;
-    let keys = quic_initial_keys(header.version, header.dcid)?;
-    let unprotected = unprotect_quic_initial_header(packet, &header, &keys.hp)?;
-    let plaintext = decrypt_quic_initial_packet(packet, &unprotected, &keys)?;
-    let crypto_stream = collect_quic_crypto_stream(&plaintext)?;
-    sniff_tls_client_hello_handshake_sni(&crypto_stream)
+    let now = Instant::now();
+    let mut reassembler = QuicInitialSniReassembler::new(now);
+    match reassembler.push_datagram(packet, now) {
+        QuicInitialSniReassemblyResult::Found(domain) => Some(domain),
+        _ => None,
+    }
 }
 
 /// Exercises the QUIC Initial decoder without exposing it in normal builds.
@@ -416,10 +565,9 @@ fn decrypt_quic_initial_packet(
         .ok()
 }
 
-fn collect_quic_crypto_stream(plaintext: &[u8]) -> Option<Vec<u8>> {
+fn collect_quic_crypto_fragments(plaintext: &[u8]) -> Option<Vec<(usize, Vec<u8>)>> {
     let mut offset = 0usize;
-    let mut crypto_stream = Vec::new();
-    let mut found_crypto = false;
+    let mut fragments = Vec::new();
 
     while offset < plaintext.len() {
         let frame_type = plaintext[offset];
@@ -441,19 +589,14 @@ fn collect_quic_crypto_stream(plaintext: &[u8]) -> Option<Vec<u8>> {
                 if data_end > plaintext.len() || stream_end > QUIC_MAX_CRYPTO_STREAM_SIZE {
                     return None;
                 }
-                if crypto_stream.len() < stream_end {
-                    crypto_stream.resize(stream_end, 0);
-                }
-                crypto_stream[crypto_offset..stream_end]
-                    .copy_from_slice(&plaintext[offset..data_end]);
+                fragments.push((crypto_offset, plaintext[offset..data_end].to_vec()));
                 offset = data_end;
-                found_crypto = true;
             }
             _ => return None,
         }
     }
 
-    found_crypto.then_some(crypto_stream)
+    Some(fragments)
 }
 
 fn skip_quic_ack_frame(plaintext: &[u8], mut offset: usize, has_ecn: bool) -> Option<usize> {
@@ -606,6 +749,11 @@ fn encode_quic_varint_internal(value: u64, output: &mut Vec<u8>) {
 }
 
 fn quic_initial_packet_with_sni_generator(host: &str) -> Vec<u8> {
+    let handshake = test_tls_client_hello_handshake(host);
+    quic_initial_packet_with_crypto_fragment(0, &handshake, 0)
+}
+
+fn test_tls_client_hello_handshake(host: &str) -> Vec<u8> {
     let mut sni_entry = Vec::new();
     sni_entry.push(0);
     sni_entry.extend_from_slice(&(host.len() as u16).to_be_bytes());
@@ -639,25 +787,29 @@ fn quic_initial_packet_with_sni_generator(host: &str) -> Vec<u8> {
         (body.len() & 0xff) as u8,
     ]);
     handshake.extend_from_slice(&body);
+    handshake
+}
 
-    const INITIAL_SALT: [u8; 20] = [
-        0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8,
-        0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a,
-    ];
-
+fn quic_initial_packet_with_crypto_fragment(
+    crypto_offset: usize,
+    crypto_fragment: &[u8],
+    packet_number: u64,
+) -> Vec<u8> {
     let dcid = [0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08];
     let scid = [0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb];
-    let packet_number = 0u64;
     let packet_number_len = 1usize;
 
     let mut plaintext = Vec::new();
     plaintext.push(0x06);
-    encode_quic_varint_internal(0, &mut plaintext);
-    encode_quic_varint_internal(handshake.len() as u64, &mut plaintext);
-    plaintext.extend_from_slice(&handshake);
+    encode_quic_varint_internal(crypto_offset as u64, &mut plaintext);
+    encode_quic_varint_internal(crypto_fragment.len() as u64, &mut plaintext);
+    plaintext.extend_from_slice(crypto_fragment);
+    while plaintext.len() < QUIC_HP_SAMPLE_LEN + QUIC_TAG_LEN {
+        plaintext.push(0);
+    }
 
     let initial_secret = {
-        let hk = Hkdf::<Sha256>::new(Some(&INITIAL_SALT), &dcid);
+        let hk = Hkdf::<Sha256>::new(Some(&QUIC_V1_INITIAL_SALT), &dcid);
         let mut secret = [0u8; 32];
         hk.expand(&tls13_hkdf_label(32, b"client in"), &mut secret)
             .expect("initial secret label is valid");
@@ -868,6 +1020,45 @@ mod tests {
         .is_none());
     }
 
+    #[test]
+    fn quic_initial_sni_reassembles_out_of_order_crypto_fragments() {
+        let host = "fragmented.quic.example";
+        let handshake = test_tls_client_hello_handshake(host);
+        let split = 28;
+        let now = Instant::now();
+        let mut reassembler = QuicInitialSniReassembler::with_limits(
+            now,
+            QUIC_MAX_CRYPTO_STREAM_SIZE,
+            8,
+            Duration::from_millis(200),
+        );
+        let later = quic_initial_packet_with_crypto_fragment(split, &handshake[split..], 1);
+        let first = quic_initial_packet_with_crypto_fragment(0, &handshake[..split], 0);
+
+        assert_eq!(
+            reassembler.push_datagram(&later, now),
+            QuicInitialSniReassemblyResult::Pending
+        );
+        assert_eq!(
+            reassembler.push_datagram(&first, now + Duration::from_millis(1)),
+            QuicInitialSniReassemblyResult::Found(host.to_owned())
+        );
+    }
+
+    #[test]
+    fn quic_initial_sni_reassembler_rejects_conflicting_overlap_and_limits() {
+        let now = Instant::now();
+        let mut reassembler =
+            QuicInitialSniReassembler::with_limits(now, 64, 1, Duration::from_millis(200));
+        assert!(reassembler.insert_fragment(0, b"hello"));
+        assert!(!reassembler.insert_fragment(2, b"XX"));
+
+        let mut limited =
+            QuicInitialSniReassembler::with_limits(now, 64, 1, Duration::from_millis(200));
+        assert!(limited.insert_fragment(0, b"a"));
+        assert!(!limited.insert_fragment(3, b"b"));
+    }
+
     fn tls_client_hello_handshake_with_sni(host: &str) -> Vec<u8> {
         let mut sni_entry = Vec::new();
         sni_entry.push(0);
@@ -919,4 +1110,3 @@ mod tests {
         quic_initial_packet_with_sni_generator(host)
     }
 }
-
