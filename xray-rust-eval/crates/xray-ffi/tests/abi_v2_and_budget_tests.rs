@@ -284,8 +284,7 @@ fn abi_v2_tun_batch_push_and_batch_poll_flow() {
         };
         assert_eq!(status, XrayStatus::Ok);
         let mut offset = 0usize;
-        for i in 0..packet_count {
-            let pkt_len = packet_lengths[i];
+        for &pkt_len in packet_lengths.iter().take(packet_count) {
             let pkt_slice = &poll_buffer[offset..offset + pkt_len];
             if is_ipv4_icmp_echo_reply(pkt_slice) {
                 replies_found += 1;

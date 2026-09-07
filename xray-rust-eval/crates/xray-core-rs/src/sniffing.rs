@@ -388,11 +388,6 @@ pub fn sniff_quic_initial_sni_public(packet: &[u8]) -> Option<String> {
     sniff_quic_initial_sni(packet)
 }
 
-/// Helper for constructing a valid encrypted QUIC Initial packet carrying TLS ClientHello SNI.
-pub fn build_test_quic_initial_packet(host: &str) -> Vec<u8> {
-    quic_initial_packet_with_sni_generator(host)
-}
-
 struct QuicInitialHeader<'a> {
     version: u32,
     dcid: &'a [u8],
@@ -737,6 +732,7 @@ fn tls13_hkdf_label(length: u16, label: &[u8]) -> Vec<u8> {
     output
 }
 
+#[cfg(test)]
 fn encode_quic_varint_internal(value: u64, output: &mut Vec<u8>) {
     if value < 64 {
         output.push(value as u8);
@@ -748,11 +744,13 @@ fn encode_quic_varint_internal(value: u64, output: &mut Vec<u8>) {
     }
 }
 
+#[cfg(test)]
 fn quic_initial_packet_with_sni_generator(host: &str) -> Vec<u8> {
     let handshake = test_tls_client_hello_handshake(host);
     quic_initial_packet_with_crypto_fragment(0, &handshake, 0)
 }
 
+#[cfg(test)]
 fn test_tls_client_hello_handshake(host: &str) -> Vec<u8> {
     let mut sni_entry = Vec::new();
     sni_entry.push(0);
@@ -790,6 +788,7 @@ fn test_tls_client_hello_handshake(host: &str) -> Vec<u8> {
     handshake
 }
 
+#[cfg(test)]
 fn quic_initial_packet_with_crypto_fragment(
     crypto_offset: usize,
     crypto_fragment: &[u8],

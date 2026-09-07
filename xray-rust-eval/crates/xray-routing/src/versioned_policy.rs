@@ -90,35 +90,6 @@ impl VersionedRoutingPolicy {
             }
         }
 
-        // Fast path for Global or Direct modes
-        match self.mode {
-            PolicyMode::Global => {
-                return RouteDecision {
-                    network,
-                    domain_provenance: explicit_domain.map_or(DomainProvenance::None, |_| DomainProvenance::Explicit),
-                    ip: target_ip,
-                    port: target.port,
-                    rule_revision: self.revision,
-                    action: RouteAction::Proxy,
-                    reason: RouteReason::Default,
-                    matched_pattern: None,
-                };
-            }
-            PolicyMode::Direct => {
-                return RouteDecision {
-                    network,
-                    domain_provenance: explicit_domain.map_or(DomainProvenance::None, |_| DomainProvenance::Explicit),
-                    ip: target_ip,
-                    port: target.port,
-                    rule_revision: self.revision,
-                    action: RouteAction::Direct,
-                    reason: RouteReason::Default,
-                    matched_pattern: None,
-                };
-            }
-            PolicyMode::Rule => {}
-        }
-
         // 2. Explicit proxy / direct domains (for explicit domain targets)
         if let Some(domain) = explicit_domain {
             if self.explicit_proxy_domains.matches(domain) {
@@ -281,14 +252,19 @@ impl VersionedRoutingPolicy {
             }
         }
 
-        // 6. Default fallback (proxy in Rule mode)
+        // 6. Mode fallback after all explicit, DNS, sniffed and IP decisions.
+        let mode_action = match self.mode {
+            PolicyMode::Global => RouteAction::Proxy,
+            PolicyMode::Direct => RouteAction::Direct,
+            PolicyMode::Rule => RouteAction::Proxy,
+        };
         RouteDecision {
             network,
             domain_provenance: explicit_domain.map_or(DomainProvenance::None, |_| DomainProvenance::Explicit),
             ip: target_ip,
             port: target.port,
             rule_revision: self.revision,
-            action: RouteAction::Proxy,
+            action: mode_action,
             reason: RouteReason::Default,
             matched_pattern: None,
         }
@@ -301,6 +277,54 @@ fn domain_matcher_pattern(m: &DomainMatcher) -> &str {
         DomainMatcher::Full(s) => s.as_str(),
         DomainMatcher::Suffix(s) => s.as_str(),
         DomainMatcher::Regex(r) => r.pattern(),
+    }
+}
+
+fn domain_matcher_kind(m: &DomainMatcher) -> &'static str {
+    match m {
+        DomainMatcher::Keyword(_) => "keyword",
+        DomainMatcher::Full(_) => "full",
+        DomainMatcher::Suffix(_) => "suffix",
+        DomainMatcher::Regex(_) => "regex",
+    }
+}
+
+fn update_length_prefixed(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value);
+}
+
+fn update_matcher_list(hasher: &mut Sha256, name: &[u8], matchers: &[DomainMatcher]) {
+    update_length_prefixed(hasher, name);
+    let mut values = matchers
+        .iter()
+        .map(|matcher| format!("{}:{}", domain_matcher_kind(matcher), domain_matcher_pattern(matcher)))
+        .collect::<Vec<_>>();
+    values.sort_unstable();
+    hasher.update((values.len() as u64).to_be_bytes());
+    for value in values {
+        update_length_prefixed(hasher, value.as_bytes());
+    }
+}
+
+fn update_cidr_list(hasher: &mut Sha256, name: &[u8], cidrs: &[Cidr]) {
+    update_length_prefixed(hasher, name);
+    let mut values = cidrs
+        .iter()
+        .map(|cidr| format!("{}/{}", cidr.network(), cidr.prefix_len()))
+        .collect::<Vec<_>>();
+    values.sort_unstable();
+    hasher.update((values.len() as u64).to_be_bytes());
+    for value in values {
+        update_length_prefixed(hasher, value.as_bytes());
+    }
+}
+
+fn policy_mode_tag(mode: PolicyMode) -> &'static [u8] {
+    match mode {
+        PolicyMode::Rule => b"rule",
+        PolicyMode::Global => b"global",
+        PolicyMode::Direct => b"direct",
     }
 }
 
@@ -368,22 +392,40 @@ impl VersionedRoutingPolicyBuilder {
 
     pub fn build(self) -> Result<VersionedRoutingPolicy, PolicyError> {
         let mut hasher = Sha256::new();
-        hasher.update(self.revision.to_le_bytes());
-        hasher.update([self.mode as u8]);
-
-        for m in &self.security_block_domains {
-            hasher.update(domain_matcher_pattern(m).as_bytes());
-        }
-        for c in &self.security_block_cidrs {
-            hasher.update(c.network().to_string().as_bytes());
-            hasher.update([c.prefix_len()]);
-        }
-        for m in &self.explicit_direct_domains {
-            hasher.update(domain_matcher_pattern(m).as_bytes());
-        }
-        for m in &self.explicit_proxy_domains {
-            hasher.update(domain_matcher_pattern(m).as_bytes());
-        }
+        update_length_prefixed(&mut hasher, b"folo-route-policy-v1");
+        hasher.update(self.revision.to_be_bytes());
+        update_length_prefixed(&mut hasher, policy_mode_tag(self.mode));
+        update_matcher_list(
+            &mut hasher,
+            b"security-block-domains",
+            &self.security_block_domains,
+        );
+        update_cidr_list(
+            &mut hasher,
+            b"security-block-cidrs",
+            &self.security_block_cidrs,
+        );
+        update_matcher_list(
+            &mut hasher,
+            b"explicit-direct-domains",
+            &self.explicit_direct_domains,
+        );
+        update_matcher_list(
+            &mut hasher,
+            b"explicit-proxy-domains",
+            &self.explicit_proxy_domains,
+        );
+        update_cidr_list(
+            &mut hasher,
+            b"explicit-direct-cidrs",
+            &self.explicit_direct_cidrs,
+        );
+        update_cidr_list(
+            &mut hasher,
+            b"explicit-proxy-cidrs",
+            &self.explicit_proxy_cidrs,
+        );
+        update_cidr_list(&mut hasher, b"china-cidrs", &self.china_cidrs);
 
         let fingerprint: [u8; 32] = hasher.finalize().into();
 

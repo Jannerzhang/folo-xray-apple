@@ -10,14 +10,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOCK_FILE="${REPO_ROOT}/build/toolchain.lock.yml"
 
-export PATH="/Users/liwanqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.4.darwin-arm64/bin:${PATH}"
-
 die() {
   printf 'build error: %s\n' "$1" >&2
   exit 1
 }
 
-command -v go >/dev/null 2>&1 || die "go is required"
+GO_BIN="${GO_BIN:-go}"
+command -v "${GO_BIN}" >/dev/null 2>&1 || die "go is required"
 command -v xcodebuild >/dev/null 2>&1 || die "xcodebuild is required"
 command -v xcrun >/dev/null 2>&1 || die "xcrun is required"
 command -v file >/dev/null 2>&1 || die "file is required"
@@ -37,7 +36,9 @@ EXPECTED_XCODE_BUILD="$(lock_value xcode.build)"
 EXPECTED_SDK="$(lock_value sdk.version)"
 MIN_IOS="$(lock_value deploymentTarget)"
 
-ACTUAL_GO="$(go version | awk '{print $3}')"
+export GOTOOLCHAIN="${GOTOOLCHAIN:-${EXPECTED_GO}+auto}"
+
+ACTUAL_GO="$("${GO_BIN}" version | awk '{print $3}')"
 ACTUAL_XCODE="$(xcodebuild -version | awk 'NR == 1 {print $2}')"
 ACTUAL_XCODE_BUILD="$(xcodebuild -version | awk 'NR == 2 {print $3}')"
 ACTUAL_SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
@@ -88,7 +89,7 @@ build_slice() {
     env \
       PATH="${PATH}" \
       GOWORK="${REPO_ROOT}/go.work" \
-      GOTOOLCHAIN=local \
+      GOTOOLCHAIN="${GOTOOLCHAIN}" \
       GOOS="${goos}" \
       GOARCH="${goarch}" \
       CGO_ENABLED=1 \
@@ -98,7 +99,7 @@ build_slice() {
       CGO_CFLAGS="${flags}" \
       CGO_CXXFLAGS="${flags}" \
       CGO_LDFLAGS="${flags} -Wl,-dead_strip" \
-      "${GO_BIN:-go}" build \
+      "${GO_BIN}" build \
         -buildmode=c-archive \
         -buildvcs=false \
         -ldflags='-s -w -buildid=' \

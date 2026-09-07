@@ -6,8 +6,7 @@ use std::time::Instant;
 use tokio::io::AsyncWriteExt;
 use xray_config::{InboundSniffingConfig, SniffingDestination};
 use xray_core_rs::{
-    build_test_quic_initial_packet, should_sniff_udp, sniff_quic_initial_sni_public,
-    sniff_udp_initial_payload,
+    should_sniff_udp, sniff_quic_initial_sni_public, sniff_udp_initial_payload,
 };
 use xray_proxy::vless::{
     encode_xudp_keep_packet, encode_xudp_new_packet, read_xudp_packet,
@@ -16,6 +15,9 @@ use xray_routing::{
     DnsAttributionCache, DomainMatcher, DomainProvenance, Network, PolicyMode, RouteAction,
     RouteReason, Target, TargetAddr, VersionedRoutingPolicyBuilder,
 };
+
+mod quic_fixture;
+use quic_fixture::build_test_quic_initial_packet;
 
 #[test]
 fn test_quic_initial_sni_sniffing_mainstream_apps() {

@@ -145,8 +145,7 @@ fn test_batch_push_and_poll_roundtrip_with_folo_ios_profile() {
         };
         assert_eq!(status, XrayStatus::Ok);
         let mut offset = 0usize;
-        for i in 0..polled_in_call {
-            let pkt_len = packet_lengths[i];
+        for &pkt_len in packet_lengths.iter().take(polled_in_call) {
             if pkt_len > 0 && offset + pkt_len <= poll_buffer.len() {
                 let reply = &poll_buffer[offset..offset + pkt_len];
                 assert!(is_ipv4_icmp_echo_reply(reply));

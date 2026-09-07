@@ -33,6 +33,15 @@ sbom = JSON.parse(File.read(SBOM))
 packages = sbom.fetch("packages")
 fail!("empty SBOM") if packages.empty?
 
+policy_path = File.expand_path(audit.fetch("policy"), File.dirname(AUDIT))
+policy_root = File.dirname(AUDIT)
+fail!("policy reference escapes compliance directory") unless policy_path.start_with?("#{policy_root}/")
+fail!("missing policy reference #{policy_path}") unless File.file?(policy_path)
+policy_text = File.read(policy_path)
+policy_sha = audit.fetch("policySha256")
+fail!("invalid policy SHA-256") unless policy_sha.match?(/\A[0-9a-f]{64}\z/)
+fail!("policy reference does not pin the expected policy hash") unless policy_text.include?(policy_sha)
+
 scope = audit.fetch("scope")
 mobile_sdk = audit.fetch("mobileSdk")
 release_gate = audit.fetch("releaseGate")

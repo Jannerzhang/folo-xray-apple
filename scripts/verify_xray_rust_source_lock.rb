@@ -20,8 +20,8 @@ EXPECTED = {
     tag: "v0.5.0",
     commit: "549807d621fadc618e6d0bab75f9e58ef35a7fc1",
     tree: "444c2404cec84f5ff9869af78e403c504b39c161",
-    lock_sha: "5f395cd6c7239234b34ef1a4f50e59b77e3c0edb0ea6c6ac060240888969759c",
-    header_sha: "0f4753aff311d0d3ec99d00e800814c0adf86860be1fe1f7757b4e217660beb9"
+    lock_sha: "270d481f84d5e6f8072f6c65988dc2a5f2ef5f9fe7c1055f48c16fe88475ab8a",
+    header_sha: "372a5539756df970583b58c3a077363e23dc55b7445b21ecef52ce79b814f952"
   },
   "xray-rust-mobile-eval" => {
     repository: "https://github.com/aimalygin/xray-rust-mobile.git",
