@@ -3,7 +3,7 @@ use std::{
     io,
     net::SocketAddr,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     task::{Context, Poll},
 };
 
@@ -31,7 +31,7 @@ use crate::{
 
 /// Identifies one rustls configuration shape. Two connections that agree on
 /// all six fields share a config, which matters less for build cost —
-/// webpki-roots ships pre-parsed statics, so building one is microseconds —
+/// native trust-store loading is cached process-wide —
 /// than for continuity: a `ClientConfig` owns the resumption session store, so
 /// splitting configs splits session tickets and kx hints along with them.
 ///
@@ -837,9 +837,7 @@ fn client_config_with_provider(
     if allow_insecure {
         return insecure_rustls_client_config(provider, versions);
     }
-    let root_store = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
+    let root_store = native_root_store()?;
     if !pinned_peer_cert_sha256.is_empty() || !verify_peer_cert_by_name.is_empty() {
         return custom_verification_rustls_client_config(
             provider,
@@ -851,6 +849,40 @@ fn client_config_with_provider(
     }
 
     rustls_client_config(provider, root_store, versions)
+}
+
+/// Load the operating-system trust store instead of bundling a separate root
+/// list in the mobile artifact. Partial or empty stores are rejected so a
+/// platform lookup failure cannot silently turn normal TLS into an untrusted
+/// connection.
+static NATIVE_ROOT_STORE: OnceLock<Result<Arc<rustls::RootCertStore>, String>> = OnceLock::new();
+
+fn native_root_store() -> Result<rustls::RootCertStore, TransportError> {
+    let cached = NATIVE_ROOT_STORE.get_or_init(|| {
+        let loaded = rustls_native_certs::load_native_certs();
+        if !loaded.errors.is_empty() {
+            return Err(format!(
+                "native certificate store returned errors: {:?}",
+                loaded.errors
+            ));
+        }
+
+        let mut root_store = rustls::RootCertStore::empty();
+        for certificate in loaded.certs {
+            root_store
+                .add(certificate)
+                .map_err(|error| error.to_string())?;
+        }
+        if root_store.is_empty() {
+            return Err("native certificate store is empty".to_owned());
+        }
+        Ok(Arc::new(root_store))
+    });
+
+    cached
+        .as_ref()
+        .map(|root_store| (**root_store).clone())
+        .map_err(|error| TransportError::TlsConfig(error.clone()))
 }
 
 fn custom_verification_rustls_client_config(

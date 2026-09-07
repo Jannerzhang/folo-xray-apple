@@ -257,11 +257,11 @@ mod utls_tls_shaping_tests {
         let firefox = plain_tls_client_hello_bytes(&config("firefox", &[]))
             .expect("Firefox ClientHello must be produced");
 
-        assert_eq!(certificate_compression_algorithms(&safari), Some(vec![1]));
+        assert_eq!(certificate_compression_algorithms(&safari), None);
         assert_eq!(
             certificate_compression_algorithms(&firefox),
-            Some(vec![1, 2, 3]),
-            "Firefox's zlib/brotli/zstd order is part of the fingerprint"
+            Some(vec![2, 3]),
+            "Firefox keeps the supported brotli/zstd order after zlib is removed"
         );
     }
 
@@ -1353,22 +1353,18 @@ mod utls_tls_shaping_tests {
     }
 
     #[tokio::test]
-    async fn safari_and_firefox_accept_a_zlib_compressed_certificate() {
-        for fingerprint in ["safari", "firefox"] {
-            let (addr, served) =
-                spawn_compressed_certificate_tls_server(rustls::compress::ZLIB_COMPRESSOR).await;
+    async fn firefox_accepts_a_brotli_compressed_certificate() {
+        let (addr, served) =
+            spawn_compressed_certificate_tls_server(rustls::compress::BROTLI_COMPRESSOR).await;
 
-            dial_shaped(fingerprint, addr)
-                .await
-                .unwrap_or_else(|error| {
-                    panic!("{fingerprint}: the zlib-compressed handshake must succeed: {error}")
-                });
+        dial_shaped("firefox", addr)
+            .await
+            .unwrap_or_else(|error| panic!("firefox: the brotli-compressed handshake must succeed: {error}"));
 
-            served
-                .await
-                .expect("the server task must finish")
-                .unwrap_or_else(|error| panic!("{fingerprint}: server handshake: {error}"));
-        }
+        served
+            .await
+            .expect("the server task must finish")
+            .unwrap_or_else(|error| panic!("firefox: server handshake: {error}"));
     }
 
     #[tokio::test]

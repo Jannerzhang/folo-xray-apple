@@ -701,13 +701,18 @@ fn assert_masked_client_hello_eq(fingerprint: &str, actual: &[u8], expected: &[u
     panic!("{fingerprint}: masked raw ClientHello differs: {difference}");
 }
 
-/// Removes the two byte ranges whose lengths intentionally change when the
-/// local rustls provider cannot negotiate every suite in a uTLS profile.
+/// Removes the byte ranges whose lengths intentionally change when the local
+/// rustls provider cannot negotiate every suite or certificate compressor in a
+/// uTLS profile.
 ///
 /// The cipher vector is asserted independently above. BoringSSL-style
 /// profiles absorb its shorter wire length by growing their all-zero padding
 /// payload. Padding presence, position, header and exact growth are asserted
 /// independently too; only its already-checked payload is removed here.
+/// Certificate-compression extensions are removed as a whole because this
+/// build intentionally excludes the zlib implementation from the normal
+/// mobile graph; the supported brotli/zstd list is checked by the shaping
+/// tests before this helper runs.
 /// Length fields are rewritten before removal, leaving a canonical
 /// ClientHello in which every other byte, extension, and ordering decision
 /// remains byte-exact.
@@ -748,7 +753,9 @@ fn canonical_client_hello_for_raw_oracle(raw: &[u8]) -> Result<Vec<u8>, String> 
     }
 
     let mut padding = None;
+    let mut unsupported_certificate_compression = Vec::new();
     while cursor.offset < extensions_end {
+        let extension_start = cursor.offset;
         let extension_type = cursor.read_u16("missing extension type")? as u16;
         let extension_length_offset = cursor.offset;
         let extension_len = cursor.read_u16("missing extension length")?;
@@ -765,15 +772,22 @@ fn canonical_client_hello_for_raw_oracle(raw: &[u8]) -> Result<Vec<u8>, String> 
         {
             return Err("ClientHello contains more than one padding extension".to_owned());
         }
+        if extension_type == 0x001b {
+            unsupported_certificate_compression.push((extension_start, cursor.offset));
+        }
     }
 
     let padding_bytes = padding.map_or(0, |(_, start, end)| end - start);
+    let unsupported_certificate_compression_bytes = unsupported_certificate_compression
+        .iter()
+        .map(|(start, end)| end - start)
+        .sum::<usize>();
     let canonical_handshake_len = raw
         .len()
-        .checked_sub(4 + cipher_bytes + padding_bytes)
+        .checked_sub(4 + cipher_bytes + padding_bytes + unsupported_certificate_compression_bytes)
         .ok_or_else(|| "canonical ClientHello length underflow".to_owned())?;
     let canonical_extensions_len = extensions_len
-        .checked_sub(padding_bytes)
+        .checked_sub(padding_bytes + unsupported_certificate_compression_bytes)
         .ok_or_else(|| "canonical extensions length underflow".to_owned())?;
     if canonical_handshake_len > 0x00ff_ffff || canonical_extensions_len > u16::MAX as usize {
         return Err("canonical ClientHello length does not fit its wire field".to_owned());
@@ -793,6 +807,7 @@ fn canonical_client_hello_for_raw_oracle(raw: &[u8]) -> Result<Vec<u8>, String> 
     if let Some((_, padding_start, padding_end)) = padding {
         ranges.push((padding_start, padding_end));
     }
+    ranges.extend(unsupported_certificate_compression);
     ranges.sort_unstable_by_key(|(start, _)| *start);
     for (start, end) in ranges.into_iter().rev() {
         canonical.drain(start..end);

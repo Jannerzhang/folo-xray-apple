@@ -64,7 +64,6 @@ const TLS_VERSION_1_3: u16 = 0x0304;
 /// KEM to `DHKEM_X25519_HKDF_SHA256`, whose encapsulated key is an X25519
 /// public key.
 const ENCAPSULATED_KEY_LEN: usize = 32;
-const ZLIB_CERTIFICATE_COMPRESSION: u16 = 0x0001;
 const BROTLI_CERTIFICATE_COMPRESSION: u16 = 0x0002;
 const ZSTD_CERTIFICATE_COMPRESSION: u16 = 0x0003;
 const BORINGSSL_PADDING_TARGET_HANDSHAKE_SIZE: usize = 512;
@@ -487,10 +486,13 @@ fn extension_payloads(
     if !profile_certificate_compression_is_fully_supported(profile)
         && profile_has_extension(profile, EXT_CERTIFICATE_COMPRESSION)
     {
-        exact_extensions.push(ClientHelloExactExtension::new(
-            EXT_CERTIFICATE_COMPRESSION,
-            certificate_compression_payload(profile.certificate_compression_algorithms)?,
-        )?);
+        let supported_algorithms = supported_certificate_compression_algorithms(profile);
+        if !supported_algorithms.is_empty() {
+            exact_extensions.push(ClientHelloExactExtension::new(
+                EXT_CERTIFICATE_COMPRESSION,
+                certificate_compression_payload(&supported_algorithms)?,
+            )?);
+        }
     }
     if let Some(record_size_limit) = profile.record_size_limit {
         push_exact_or_raw_extension(
@@ -803,23 +805,26 @@ fn profile_has_extension(profile: &UtlsClientHelloProfile, extension_type: u16) 
 }
 
 fn profile_has_supported_certificate_compression(profile: &UtlsClientHelloProfile) -> bool {
-    profile
-        .certificate_compression_algorithms
-        .iter()
-        .any(|algorithm| supported_certificate_compression(*algorithm).is_some())
+    !supported_certificate_compression_algorithms(profile).is_empty()
 }
 
 fn profile_certificate_compression_is_fully_supported(profile: &UtlsClientHelloProfile) -> bool {
     !profile.certificate_compression_algorithms.is_empty()
-        && profile
-            .certificate_compression_algorithms
-            .iter()
-            .all(|algorithm| supported_certificate_compression(*algorithm).is_some())
+        && supported_certificate_compression_algorithms(profile).len()
+            == profile.certificate_compression_algorithms.len()
+}
+
+fn supported_certificate_compression_algorithms(profile: &UtlsClientHelloProfile) -> Vec<u16> {
+    profile
+        .certificate_compression_algorithms
+        .iter()
+        .copied()
+        .filter(|algorithm| supported_certificate_compression(*algorithm).is_some())
+        .collect()
 }
 
 fn supported_certificate_compression(algorithm: u16) -> Option<CertificateCompressionAlgorithm> {
     match algorithm {
-        ZLIB_CERTIFICATE_COMPRESSION => Some(CertificateCompressionAlgorithm::Zlib),
         BROTLI_CERTIFICATE_COMPRESSION => Some(CertificateCompressionAlgorithm::Brotli),
         ZSTD_CERTIFICATE_COMPRESSION => Some(CertificateCompressionAlgorithm::Zstd),
         _ => None,
