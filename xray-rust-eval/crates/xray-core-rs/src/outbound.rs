@@ -759,6 +759,7 @@ pub struct OutboundNodeId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutboundNodeKind {
     Freedom,
+    Blackhole,
     Vless,
     Dns,
     Selector,
@@ -966,7 +967,7 @@ impl OutboundGraph {
                 tag: outbound.tag.clone(),
                 kind: match outbound.settings {
                     OutboundSettings::Freedom => OutboundNodeKind::Freedom,
-                    OutboundSettings::Blackhole => OutboundNodeKind::Freedom,
+                    OutboundSettings::Blackhole => OutboundNodeKind::Blackhole,
                     OutboundSettings::Vless(_) => OutboundNodeKind::Vless,
                     OutboundSettings::Dns(_) => OutboundNodeKind::Dns,
                 },
