@@ -117,7 +117,8 @@ typedef enum XrayTunRuntimeProfile {
   XRAY_TUN_RUNTIME_PROFILE_DESKTOP = 2,
   XRAY_TUN_RUNTIME_PROFILE_LOW_MEMORY = 3,
   XRAY_TUN_RUNTIME_PROFILE_THROUGHPUT = 4,
-  XRAY_TUN_RUNTIME_PROFILE_MOBILE_PLUS = 5
+  XRAY_TUN_RUNTIME_PROFILE_MOBILE_PLUS = 5,
+  XRAY_TUN_RUNTIME_PROFILE_FOLO_IOS = 6
 } XrayTunRuntimeProfile;
 
 typedef enum XrayDnsBootstrapMode {
@@ -198,7 +199,8 @@ typedef enum XrayFfiCapability {
   XRAY_FFI_CAPABILITY_OUTBOUND_SELECTION = 1 << 12,
   XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH = 1 << 13,
   XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT = 1 << 14,
-  XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE = 1 << 15
+  XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE = 1 << 15,
+  XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH = 1 << 16
 } XrayFfiCapability;
 
 uint32_t xray_ffi_version_major(void);
@@ -234,6 +236,12 @@ XrayStatus xray_core_config_warnings(
     XrayError **error);
 XrayStatus xray_core_start(XrayCoreHandle *handle, XrayError **error);
 XrayStatus xray_core_stop(XrayCoreHandle *handle, XrayError **error);
+/* Wakes any thread currently blocked in xray_tun_poll_packets or
+ * xray_tun_poll_packet on this handle. Automatically invoked during
+ * xray_core_stop. */
+XrayStatus xray_core_cancel_tun_poll(
+    XrayCoreHandle *handle,
+    XrayError **error);
 /* Selector overrides affect new flows only and may be changed while running. */
 XrayStatus xray_core_set_outbound_selector_override(
     XrayCoreHandle *handle,
@@ -336,6 +344,16 @@ XrayStatus xray_tun_push_packet(
     XrayCoreHandle *handle,
     const uint8_t *data,
     size_t len,
+    XrayError **error);
+/* Pushes a batch of raw IP packets from the host TUN adapter into the core.
+ * `packets` points to an array of `count` buffer pointers, each with corresponding
+ * length in `lengths`. `pushed_count` receives the number of packets accepted. */
+XrayStatus xray_tun_push_packets(
+    XrayCoreHandle *handle,
+    const uint8_t *const *packets,
+    const size_t *lengths,
+    size_t count,
+    size_t *pushed_count,
     XrayError **error);
 /* On XRAY_STATUS_BUFFER_TOO_SMALL, *written receives the required packet
  * length and the packet is retained for the next xray_tun_poll_packet call. */

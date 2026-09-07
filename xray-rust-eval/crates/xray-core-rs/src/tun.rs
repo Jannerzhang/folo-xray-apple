@@ -108,6 +108,8 @@ struct TcpRemoteBufferPolicy {
     pressure_per_flow_bytes: usize,
     pressure_start_total_bytes: usize,
     pressure_release_total_bytes: usize,
+    critical_start_total_bytes: usize,
+    critical_release_total_bytes: usize,
     hard_total_bytes: usize,
 }
 
@@ -118,6 +120,8 @@ const MOBILE_TCP_REMOTE_BUFFER_POLICY: TcpRemoteBufferPolicy = TcpRemoteBufferPo
     pressure_per_flow_bytes: 2 * 1024 * 1024,
     pressure_start_total_bytes: 24 * 1024 * 1024,
     pressure_release_total_bytes: 16 * 1024 * 1024,
+    critical_start_total_bytes: 32 * 1024 * 1024,
+    critical_release_total_bytes: 24 * 1024 * 1024,
     hard_total_bytes: 40 * 1024 * 1024,
 };
 
@@ -126,6 +130,8 @@ const DESKTOP_TCP_REMOTE_BUFFER_POLICY: TcpRemoteBufferPolicy = TcpRemoteBufferP
     pressure_per_flow_bytes: 2 * 1024 * 1024,
     pressure_start_total_bytes: 96 * 1024 * 1024,
     pressure_release_total_bytes: 64 * 1024 * 1024,
+    critical_start_total_bytes: 128 * 1024 * 1024,
+    critical_release_total_bytes: 96 * 1024 * 1024,
     hard_total_bytes: 160 * 1024 * 1024,
 };
 
@@ -134,7 +140,19 @@ const MOBILE_PLUS_TCP_REMOTE_BUFFER_POLICY: TcpRemoteBufferPolicy = TcpRemoteBuf
     pressure_per_flow_bytes: MOBILE_TCP_REMOTE_BUFFER_POLICY.pressure_per_flow_bytes,
     pressure_start_total_bytes: 30 * 1024 * 1024,
     pressure_release_total_bytes: 20 * 1024 * 1024,
+    critical_start_total_bytes: 35 * 1024 * 1024,
+    critical_release_total_bytes: 26 * 1024 * 1024,
     hard_total_bytes: MOBILE_TCP_REMOTE_BUFFER_POLICY.hard_total_bytes,
+};
+
+const FOLO_IOS_TCP_REMOTE_BUFFER_POLICY: TcpRemoteBufferPolicy = TcpRemoteBufferPolicy {
+    normal_per_flow_bytes: 768 * 1024,
+    pressure_per_flow_bytes: 256 * 1024,
+    pressure_start_total_bytes: 12 * 1024 * 1024,
+    pressure_release_total_bytes: 8 * 1024 * 1024,
+    critical_start_total_bytes: 18 * 1024 * 1024,
+    critical_release_total_bytes: 14 * 1024 * 1024,
+    hard_total_bytes: 22 * 1024 * 1024,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +164,8 @@ struct UdpFlowBudgetPolicy {
 struct TcpFlowBudgetPolicy {
     max_active_flows: usize,
     max_pending_opens: usize,
+    socket_buffer_size: usize,
+    reserved_priority_flows: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,6 +195,8 @@ const MOBILE_FLOW_BUDGET_POLICY: FlowBudgetPolicy = FlowBudgetPolicy {
         // also retain TLS state, so bound both dimensions independently.
         max_active_flows: 256,
         max_pending_opens: 64,
+        socket_buffer_size: TCP_BUFFER_SIZE,
+        reserved_priority_flows: 16,
     },
     udp: UdpFlowBudgetPolicy {
         // Speedtests and DNS-heavy bursts easily exceed 256 concurrent UDP
@@ -188,6 +210,8 @@ const MOBILE_PLUS_FLOW_BUDGET_POLICY: FlowBudgetPolicy = FlowBudgetPolicy {
     tcp: TcpFlowBudgetPolicy {
         max_active_flows: 384,
         max_pending_opens: 96,
+        socket_buffer_size: TCP_BUFFER_SIZE,
+        reserved_priority_flows: 16,
     },
     udp: UdpFlowBudgetPolicy {
         max_active_flows: 512,
@@ -199,6 +223,8 @@ const DESKTOP_FLOW_BUDGET_POLICY: FlowBudgetPolicy = FlowBudgetPolicy {
     tcp: TcpFlowBudgetPolicy {
         max_active_flows: 2048,
         max_pending_opens: 512,
+        socket_buffer_size: TCP_BUFFER_SIZE,
+        reserved_priority_flows: 32,
     },
     udp: UdpFlowBudgetPolicy {
         max_active_flows: 1024,
@@ -211,14 +237,31 @@ const LOW_MEMORY_FLOW_BUDGET_POLICY: FlowBudgetPolicy = FlowBudgetPolicy {
         pressure_per_flow_bytes: 512 * 1024,
         pressure_start_total_bytes: 12 * 1024 * 1024,
         pressure_release_total_bytes: 8 * 1024 * 1024,
+        critical_start_total_bytes: 16 * 1024 * 1024,
+        critical_release_total_bytes: 12 * 1024 * 1024,
         hard_total_bytes: 20 * 1024 * 1024,
     },
     tcp: TcpFlowBudgetPolicy {
         max_active_flows: 128,
         max_pending_opens: 32,
+        socket_buffer_size: TCP_BUFFER_SIZE,
+        reserved_priority_flows: 0,
     },
     udp: UdpFlowBudgetPolicy {
         max_active_flows: 128,
+    },
+};
+
+const FOLO_IOS_FLOW_BUDGET_POLICY: FlowBudgetPolicy = FlowBudgetPolicy {
+    tcp_remote: FOLO_IOS_TCP_REMOTE_BUFFER_POLICY,
+    tcp: TcpFlowBudgetPolicy {
+        max_active_flows: 256,
+        max_pending_opens: 48,
+        socket_buffer_size: 16 * 1024,
+        reserved_priority_flows: 32,
+    },
+    udp: UdpFlowBudgetPolicy {
+        max_active_flows: 256,
     },
 };
 
@@ -227,6 +270,8 @@ const THROUGHPUT_FLOW_BUDGET_POLICY: FlowBudgetPolicy = FlowBudgetPolicy {
     tcp: TcpFlowBudgetPolicy {
         max_active_flows: 4096,
         max_pending_opens: 1024,
+        socket_buffer_size: TCP_BUFFER_SIZE,
+        reserved_priority_flows: 64,
     },
     udp: UdpFlowBudgetPolicy {
         max_active_flows: 2048,
@@ -271,6 +316,11 @@ const LOW_MEMORY_TUN_RUNTIME_POLICY: TunRuntimePolicy = TunRuntimePolicy {
     tcp_upload: LOW_MEMORY_TCP_UPLOAD_BRIDGE_POLICY,
 };
 
+const FOLO_IOS_TUN_RUNTIME_POLICY: TunRuntimePolicy = TunRuntimePolicy {
+    flows: FOLO_IOS_FLOW_BUDGET_POLICY,
+    tcp_upload: MOBILE_TCP_UPLOAD_BRIDGE_POLICY,
+};
+
 const THROUGHPUT_TUN_RUNTIME_POLICY: TunRuntimePolicy = TunRuntimePolicy {
     flows: THROUGHPUT_FLOW_BUDGET_POLICY,
     tcp_upload: DEFAULT_TCP_UPLOAD_BRIDGE_POLICY,
@@ -300,7 +350,16 @@ fn tun_runtime_policy_for_options(options: TunRuntimeOptions) -> TunRuntimePolic
         TunRuntimeProfile::Desktop => DESKTOP_TUN_RUNTIME_POLICY,
         TunRuntimeProfile::LowMemory => LOW_MEMORY_TUN_RUNTIME_POLICY,
         TunRuntimeProfile::Throughput => THROUGHPUT_TUN_RUNTIME_POLICY,
+        TunRuntimeProfile::FoloIOS => FOLO_IOS_TUN_RUNTIME_POLICY,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MemoryPressureTier {
+    #[default]
+    Normal,
+    Pressure,
+    Critical,
 }
 
 #[derive(Debug)]
@@ -308,7 +367,7 @@ struct TcpRemoteBufferState {
     policy: TcpRemoteBufferPolicy,
     pending_total_bytes: usize,
     pending_flow_count: usize,
-    pressure_active: bool,
+    tier: MemoryPressureTier,
 }
 
 impl TcpRemoteBufferState {
@@ -317,7 +376,7 @@ impl TcpRemoteBufferState {
             policy,
             pending_total_bytes: 0,
             pending_flow_count: 0,
-            pressure_active: false,
+            tier: MemoryPressureTier::Normal,
         }
     }
 
@@ -375,15 +434,25 @@ impl TcpRemoteBufferState {
     }
 
     fn per_flow_limit(&self) -> usize {
-        if self.pressure_active {
-            self.policy.pressure_per_flow_bytes
-        } else {
-            self.policy.normal_per_flow_bytes
+        match self.tier {
+            MemoryPressureTier::Normal => self.policy.normal_per_flow_bytes,
+            MemoryPressureTier::Pressure => self.policy.pressure_per_flow_bytes,
+            MemoryPressureTier::Critical => self.policy.pressure_per_flow_bytes / 2,
         }
     }
 
     fn pressure_active(&self) -> bool {
-        self.pressure_active
+        self.tier != MemoryPressureTier::Normal
+    }
+
+    #[allow(dead_code)]
+    fn is_critical(&self) -> bool {
+        self.tier == MemoryPressureTier::Critical
+    }
+
+    #[allow(dead_code)]
+    fn pressure_tier(&self) -> MemoryPressureTier {
+        self.tier
     }
 
     fn refresh_pressure_state(&mut self) {
@@ -391,12 +460,30 @@ impl TcpRemoteBufferState {
     }
 
     fn refresh_pressure_state_for_total(&mut self, pending_total_bytes: usize) {
-        if self.pressure_active {
-            if pending_total_bytes <= self.policy.pressure_release_total_bytes {
-                self.pressure_active = false;
+        match self.tier {
+            MemoryPressureTier::Normal => {
+                if pending_total_bytes >= self.policy.critical_start_total_bytes {
+                    self.tier = MemoryPressureTier::Critical;
+                } else if pending_total_bytes >= self.policy.pressure_start_total_bytes {
+                    self.tier = MemoryPressureTier::Pressure;
+                }
             }
-        } else if pending_total_bytes >= self.policy.pressure_start_total_bytes {
-            self.pressure_active = true;
+            MemoryPressureTier::Pressure => {
+                if pending_total_bytes >= self.policy.critical_start_total_bytes {
+                    self.tier = MemoryPressureTier::Critical;
+                } else if pending_total_bytes <= self.policy.pressure_release_total_bytes {
+                    self.tier = MemoryPressureTier::Normal;
+                }
+            }
+            MemoryPressureTier::Critical => {
+                if pending_total_bytes <= self.policy.critical_release_total_bytes {
+                    if pending_total_bytes <= self.policy.pressure_release_total_bytes {
+                        self.tier = MemoryPressureTier::Normal;
+                    } else {
+                        self.tier = MemoryPressureTier::Pressure;
+                    }
+                }
+            }
         }
     }
 }
@@ -4750,6 +4837,10 @@ async fn bridge_udp_vless_flow_loop<R, W, T>(
     connection.finish();
 }
 
+fn is_priority_tcp_port(port: u16) -> bool {
+    port == 53 || port == 853 || port == 443
+}
+
 fn admit_tcp_listener(
     sockets: &mut SocketSet<'static>,
     listeners: &mut HashMap<IpEndpoint, TcpListenerState>,
@@ -4765,30 +4856,51 @@ fn admit_tcp_listener(
         context.runtime_policy.flows.tcp,
         active_flow_count,
         listeners.len(),
+        endpoint.port,
     ) {
         record_tcp_admission_rejection(context, endpoint, "TUN TCP flow limit reached");
         return;
     }
 
-    add_tcp_listener(sockets, listeners, endpoint);
+    add_tcp_listener(
+        sockets,
+        listeners,
+        endpoint,
+        context.runtime_policy.flows.tcp.socket_buffer_size,
+    );
 }
 
 fn tcp_listener_capacity_available(
     policy: TcpFlowBudgetPolicy,
     active_flow_count: usize,
     listener_count: usize,
+    port: u16,
 ) -> bool {
-    active_flow_count.saturating_add(listener_count) < policy.max_active_flows
+    let total = active_flow_count.saturating_add(listener_count);
+    if total >= policy.max_active_flows {
+        return false;
+    }
+    if !is_priority_tcp_port(port) {
+        let non_priority_limit = policy
+            .max_active_flows
+            .saturating_sub(policy.reserved_priority_flows);
+        if total >= non_priority_limit {
+            return false;
+        }
+    }
+    true
 }
 
 fn add_tcp_listener(
     sockets: &mut SocketSet<'static>,
     listeners: &mut HashMap<IpEndpoint, TcpListenerState>,
     endpoint: IpEndpoint,
+    socket_buffer_size: usize,
 ) {
+    let buffer_size = socket_buffer_size.max(4096);
     let mut socket = tcp::Socket::new(
-        tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
-        tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+        tcp::SocketBuffer::new(vec![0; buffer_size]),
+        tcp::SocketBuffer::new(vec![0; buffer_size]),
     );
     socket.set_nagle_enabled(false);
     if socket.listen(endpoint).is_ok() {
@@ -6379,9 +6491,32 @@ mod tests {
 
         assert_eq!(policy.max_active_flows, 128);
         assert_eq!(policy.max_pending_opens, 32);
-        assert!(tcp_listener_capacity_available(policy, 127, 0));
-        assert!(!tcp_listener_capacity_available(policy, 127, 1));
-        assert!(!tcp_listener_capacity_available(policy, 128, 0));
+        assert!(tcp_listener_capacity_available(policy, 127, 0, 80));
+        assert!(!tcp_listener_capacity_available(policy, 127, 1, 80));
+        assert!(!tcp_listener_capacity_available(policy, 128, 0, 80));
+    }
+
+    #[test]
+    fn folo_ios_tcp_flow_budget_and_priority_admission() {
+        let policy = FOLO_IOS_FLOW_BUDGET_POLICY.tcp;
+
+        assert_eq!(policy.max_active_flows, 256);
+        assert_eq!(policy.max_pending_opens, 48);
+        assert_eq!(policy.socket_buffer_size, 16 * 1024);
+        assert_eq!(policy.reserved_priority_flows, 32);
+
+        // Non-priority port (e.g. 80) is allowed below 256 - 32 = 224
+        assert!(tcp_listener_capacity_available(policy, 223, 0, 80));
+        assert!(!tcp_listener_capacity_available(policy, 224, 0, 80));
+
+        // Priority ports (443, 53, 853) are admitted even when non-priority limit is reached
+        assert!(tcp_listener_capacity_available(policy, 224, 0, 443));
+        assert!(tcp_listener_capacity_available(policy, 255, 0, 443));
+        assert!(tcp_listener_capacity_available(policy, 255, 0, 53));
+        assert!(tcp_listener_capacity_available(policy, 255, 0, 853));
+
+        // When hard max is reached (256), all ports are rejected
+        assert!(!tcp_listener_capacity_available(policy, 256, 0, 443));
     }
 
     #[test]
@@ -6806,7 +6941,7 @@ mod tests {
         iface.set_any_ip(true);
         let mut sockets = SocketSet::new(Vec::new());
         let mut listeners = HashMap::new();
-        add_tcp_listener(&mut sockets, &mut listeners, endpoint);
+        add_tcp_listener(&mut sockets, &mut listeners, endpoint, TCP_BUFFER_SIZE);
         let handle = listeners.get(&endpoint).unwrap().handle;
 
         device.push_inbound(Bytes::from(build_ipv4_tcp_packet(
@@ -7269,7 +7404,7 @@ mod tests {
         iface.set_any_ip(true);
         let mut sockets = SocketSet::new(Vec::new());
         let mut listeners = HashMap::new();
-        add_tcp_listener(&mut sockets, &mut listeners, endpoint);
+        add_tcp_listener(&mut sockets, &mut listeners, endpoint, TCP_BUFFER_SIZE);
         let handle = listeners.get(&endpoint).unwrap().handle;
 
         device.push_inbound(Bytes::from(build_ipv4_tcp_packet(

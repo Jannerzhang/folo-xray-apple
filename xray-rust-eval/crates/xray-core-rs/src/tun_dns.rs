@@ -315,7 +315,7 @@ impl DnsTcpConnectionPoolLimits {
                 per_upstream: 1,
                 global: 8,
             },
-            TunRuntimeProfile::Mobile => Self {
+            TunRuntimeProfile::Mobile | TunRuntimeProfile::FoloIOS => Self {
                 per_upstream: 2,
                 global: 16,
             },
@@ -334,7 +334,7 @@ impl DnsTcpConnectionPoolLimits {
         match profile {
             TunRuntimeProfile::Default => Self::idle_ttl_for_profile(DEFAULT_DNS_TCP_POOL_PROFILE),
             TunRuntimeProfile::LowMemory => Duration::from_secs(15),
-            TunRuntimeProfile::Mobile => Duration::from_secs(30),
+            TunRuntimeProfile::Mobile | TunRuntimeProfile::FoloIOS => Duration::from_secs(30),
             TunRuntimeProfile::MobilePlus => Duration::from_secs(45),
             TunRuntimeProfile::Desktop | TunRuntimeProfile::Throughput => Duration::from_secs(60),
         }

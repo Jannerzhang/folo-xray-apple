@@ -143,6 +143,9 @@ public struct XrayFFICapabilities: OptionSet, Equatable, Sendable {
     public static let routingPolicyUpdate = Self(
         rawValue: UInt64(XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE.rawValue)
     )
+    public static let tunBatchPush = Self(
+        rawValue: UInt64(XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH.rawValue)
+    )
 }
 
 public struct XrayFFIInfo: Equatable, Sendable {
@@ -799,6 +802,8 @@ public final class XrayCore: @unchecked Sendable {
             return XRAY_TUN_RUNTIME_PROFILE_LOW_MEMORY
         case "throughput":
             return XRAY_TUN_RUNTIME_PROFILE_THROUGHPUT
+        case "folo-ios", "folo_ios", "foloios":
+            return XRAY_TUN_RUNTIME_PROFILE_FOLO_IOS
         default:
             return XRAY_TUN_RUNTIME_PROFILE_DEFAULT
         }
@@ -1164,6 +1169,51 @@ public final class XrayCore: @unchecked Sendable {
             }
         }
     }
+
+    public func pushPackets(_ packets: [Data]) throws {
+        guard !packets.isEmpty else { return }
+        try withDataPathHandle { handle in
+            var error: OpaquePointer?
+            var pointers: [UnsafePointer<UInt8>?] = []
+            var lengths: [Int] = []
+            pointers.reserveCapacity(packets.count)
+            lengths.reserveCapacity(packets.count)
+
+            func withPointers(index: Int) throws {
+                if index == packets.count {
+                    pointers.withUnsafeBufferPointer { ptrBuf in
+                        lengths.withUnsafeBufferPointer { lenBuf in
+                            var pushedCount = 0
+                            _ = xray_tun_push_packets(
+                                handle,
+                                ptrBuf.baseAddress,
+                                lenBuf.baseAddress,
+                                packets.count,
+                                &pushedCount,
+                                &error
+                            )
+                        }
+                    }
+                    try check(error == nil ? XRAY_STATUS_OK : XrayStatus(rawValue: 1), error: error)
+                    return
+                }
+                try packets[index].withUnsafeBytes { rawBuffer in
+                    pointers.append(rawBuffer.bindMemory(to: UInt8.self).baseAddress)
+                    lengths.append(packets[index].count)
+                    try withPointers(index: index + 1)
+                }
+            }
+            try withPointers(index: 0)
+        }
+    }
+
+    public func cancelTunPoll() throws {
+        try withControlHandle { handle in
+            var error: OpaquePointer?
+            try check(xray_core_cancel_tun_poll(handle, &error), error: error)
+        }
+    }
+
 
     public func pollPacket(maxBytes: Int = 1_500) throws -> Data? {
         try Self.validatePacketPollSize(maxBytes)

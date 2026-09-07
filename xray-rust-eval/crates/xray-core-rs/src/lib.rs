@@ -118,6 +118,7 @@ pub enum TunRuntimeProfile {
     Desktop,
     LowMemory,
     Throughput,
+    FoloIOS,
 }
 
 #[cfg(any(
@@ -150,7 +151,7 @@ impl DnsRuntimeLimits {
                 max_concurrent_operations: 8,
                 idle_ttl_cap: Duration::from_secs(15),
             },
-            TunRuntimeProfile::Mobile => Self {
+            TunRuntimeProfile::Mobile | TunRuntimeProfile::FoloIOS => Self {
                 max_concurrent_operations: 16,
                 idle_ttl_cap: Duration::from_secs(30),
             },
@@ -191,6 +192,11 @@ impl TunRuntimeOptions {
                 mtu: TUN_MTU,
                 inbound_queue_depth: 256,
                 outbound_queue_depth: 512,
+            },
+            TunRuntimeProfile::FoloIOS => TunQueueOptions {
+                mtu: TUN_MTU,
+                inbound_queue_depth: 512,
+                outbound_queue_depth: 1024,
             },
             TunRuntimeProfile::Throughput => TunQueueOptions {
                 mtu: TUN_MTU,

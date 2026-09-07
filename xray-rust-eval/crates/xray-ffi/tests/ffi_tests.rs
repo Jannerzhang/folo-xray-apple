@@ -31,7 +31,8 @@ use xray_ffi::{
     XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH, XRAY_FFI_CAPABILITY_OUTBOUND_SELECTION,
     XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE, XRAY_FFI_CAPABILITY_SOCKET_PROTECTION,
     XRAY_FFI_CAPABILITY_STARTUP_PROBE, XRAY_FFI_CAPABILITY_TUN_BATCH_POLL,
-    XRAY_FFI_CAPABILITY_TUN_DIAGNOSTIC_EVENTS, XRAY_FFI_CAPABILITY_TUN_FD,
+    XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH, XRAY_FFI_CAPABILITY_TUN_DIAGNOSTIC_EVENTS,
+    XRAY_FFI_CAPABILITY_TUN_FD,
     XRAY_FFI_CAPABILITY_TUN_PACKET_IO, XRAY_FFI_CAPABILITY_TUN_RUNTIME_PROFILES,
     XRAY_FFI_CAPABILITY_TUN_STATS,
 };
@@ -59,7 +60,8 @@ fn ffi_reports_exact_current_capabilities() {
         | XRAY_FFI_CAPABILITY_OUTBOUND_SELECTION
         | XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH
         | XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT
-        | XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE;
+        | XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE
+        | XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH;
 
     assert_eq!(XRAY_FFI_CAPABILITIES, expected);
     assert_eq!(xray_ffi_capabilities(), expected);
@@ -1326,7 +1328,7 @@ fn ffi_rejects_invalid_tun_runtime_profile_discriminant() {
     let status = unsafe { xray_core_set_tun_runtime_profile(core, -1, &mut err) };
 
     assert_eq!(status, XrayStatus::InvalidArgument);
-    assert_error(&mut err, XrayStatus::InvalidArgument, "range 0..=5");
+    assert_error(&mut err, XrayStatus::InvalidArgument, "range 0..=6");
 
     unsafe {
         xray_core_free(core);

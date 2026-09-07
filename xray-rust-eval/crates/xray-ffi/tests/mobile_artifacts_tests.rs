@@ -89,6 +89,10 @@ fn ffi_header_declares_lifecycle_error_and_tun_abi() {
     assert!(header.contains("XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH = 1 << 13"));
     assert!(header.contains("XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT = 1 << 14"));
     assert!(header.contains("XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE = 1 << 15"));
+    assert!(header.contains("XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH = 1 << 16"));
+    assert!(header.contains("XRAY_TUN_RUNTIME_PROFILE_FOLO_IOS = 6"));
+    assert!(header.contains("xray_tun_push_packets"));
+    assert!(header.contains("xray_core_cancel_tun_poll"));
 
     for field in [
         "struct_size",
@@ -1181,6 +1185,7 @@ static void use_xray_ffi_api(void) {
   capabilities &= XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH;
   capabilities &= XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT;
   capabilities &= XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE;
+  capabilities &= XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH;
   (void)capabilities;
   (void)xray_core_set_geodata_search_dir(handle, ".", &error);
   (void)xray_core_set_geodata_search_dir_exclusive(handle, ".", &error);
@@ -1233,7 +1238,12 @@ static void use_xray_ffi_api(void) {
   (void)xray_core_close_connection(handle, 1, &error);
   (void)xray_core_start(handle, &error);
   (void)xray_core_stop(handle, &error);
+  (void)xray_core_cancel_tun_poll(handle, &error);
   (void)xray_tun_push_packet(handle, packet, sizeof(packet), &error);
+  const uint8_t *packet_ptrs[1] = { packet };
+  size_t packet_sizes[1] = { sizeof(packet) };
+  size_t pushed_count = 0;
+  (void)xray_tun_push_packets(handle, packet_ptrs, packet_sizes, 1, &pushed_count, &error);
   (void)xray_tun_poll_packet(handle, buffer, sizeof(buffer), &written, &error);
   (void)xray_tun_poll_packets(
       handle,

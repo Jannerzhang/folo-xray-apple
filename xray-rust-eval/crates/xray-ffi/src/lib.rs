@@ -24,8 +24,8 @@ use xray_transport::{SocketHandle, SocketProtector, TransportDialer};
 use xray_tun::TunTcpSlowFlowKind;
 use zeroize::Zeroize;
 
-pub const XRAY_FFI_ABI_MAJOR: u32 = 1;
-pub const XRAY_FFI_ABI_MINOR: u32 = 4;
+pub const XRAY_FFI_ABI_MAJOR: u32 = 2;
+pub const XRAY_FFI_ABI_MINOR: u32 = 0;
 
 pub const XRAY_FFI_CAPABILITY_CONFIG_WARNINGS: u64 = 1 << 0;
 pub const XRAY_FFI_CAPABILITY_GEODATA_SEARCH: u64 = 1 << 1;
@@ -43,6 +43,7 @@ pub const XRAY_FFI_CAPABILITY_OUTBOUND_SELECTION: u64 = 1 << 12;
 pub const XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH: u64 = 1 << 13;
 pub const XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT: u64 = 1 << 14;
 pub const XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE: u64 = 1 << 15;
+pub const XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH: u64 = 1 << 16;
 
 pub const XRAY_FFI_CAPABILITIES: u64 = XRAY_FFI_CAPABILITY_CONFIG_WARNINGS
     | XRAY_FFI_CAPABILITY_GEODATA_SEARCH
@@ -59,7 +60,8 @@ pub const XRAY_FFI_CAPABILITIES: u64 = XRAY_FFI_CAPABILITY_CONFIG_WARNINGS
     | XRAY_FFI_CAPABILITY_OUTBOUND_SELECTION
     | XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH
     | XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT
-    | XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE;
+    | XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE
+    | XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +102,7 @@ pub enum XrayTunRuntimeProfile {
     LowMemory = 3,
     Throughput = 4,
     MobilePlus = 5,
+    FoloIos = 6,
 }
 
 #[repr(C)]
@@ -162,7 +165,8 @@ impl TryFrom<c_int> for XrayTunRuntimeProfile {
             3 => Ok(Self::LowMemory),
             4 => Ok(Self::Throughput),
             5 => Ok(Self::MobilePlus),
-            _ => Err("tun runtime profile must be in the range 0..=5"),
+            6 => Ok(Self::FoloIos),
+            _ => Err("tun runtime profile must be in the range 0..=6"),
         }
     }
 }
@@ -197,6 +201,7 @@ impl From<XrayTunRuntimeProfile> for TunRuntimeProfile {
             XrayTunRuntimeProfile::LowMemory => Self::LowMemory,
             XrayTunRuntimeProfile::Throughput => Self::Throughput,
             XrayTunRuntimeProfile::MobilePlus => Self::MobilePlus,
+            XrayTunRuntimeProfile::FoloIos => Self::FoloIOS,
         }
     }
 }
@@ -466,6 +471,7 @@ pub struct XrayCoreHandle {
     tun_fd_runtime: Option<TunFdRuntime>,
     tun_runtime_options: TunRuntimeOptions,
     config_warnings: String,
+    poll_cancel: Arc<tokio::sync::Notify>,
 }
 
 enum GeodataSearch {
@@ -592,6 +598,7 @@ unsafe fn xray_core_new_inner(error: *mut *mut XrayError) -> *mut XrayCoreHandle
         tun_fd_runtime: None,
         tun_runtime_options: TunRuntimeOptions::default(),
         config_warnings: String::new(),
+        poll_cancel: Arc::new(tokio::sync::Notify::new()),
     }))
 }
 
@@ -2142,6 +2149,8 @@ unsafe fn xray_core_stop_inner(
         return XrayStatus::CoreNotLoaded;
     };
 
+    handle.poll_cancel.notify_waiters();
+
     if let Some(runtime) = handle.tun_fd_runtime.take() {
         handle.runtime.block_on(runtime.stop());
     }
@@ -2154,6 +2163,34 @@ unsafe fn xray_core_stop_inner(
             }
             XrayStatus::RuntimeError
         }
+    }
+}
+
+/// Wakes any thread currently blocked in `xray_tun_poll_packets` or
+/// `xray_tun_poll_packet` on this handle.
+///
+/// # Safety
+///
+/// `handle` must either be null or a pointer returned by `xray_core_new` that
+/// has not been freed. If `error` is non-null, it must point to an initialized
+/// `*mut XrayError` value that is either null or a live error pointer returned
+/// by this library.
+#[no_mangle]
+pub unsafe extern "C" fn xray_core_cancel_tun_poll(
+    handle: *mut XrayCoreHandle,
+    error: *mut *mut XrayError,
+) -> XrayStatus {
+    unsafe {
+        ffi_status(error, || {
+            clear_error(error);
+            if handle.is_null() {
+                set_error(error, XrayStatus::NullArgument, "core handle is null");
+                return XrayStatus::NullArgument;
+            }
+            let handle = &*handle;
+            handle.poll_cancel.notify_waiters();
+            XrayStatus::Ok
+        })
     }
 }
 
@@ -2244,6 +2281,125 @@ unsafe fn xray_tun_push_packet_inner(
             XrayStatus::TunError
         }
     }
+}
+
+/// Pushes a batch of raw IP packets from the host TUN adapter into the core.
+///
+/// `packets` must point to `count` buffer pointers, and `lengths` to `count`
+/// buffer lengths. `pushed_count` receives the number of packets accepted.
+///
+/// # Safety
+///
+/// `handle` must either be null or a pointer returned by `xray_core_new` that
+/// has not been freed. If `count > 0`, `packets` and `lengths` must each point to
+/// `count` readable elements. `pushed_count` must point to one writable `usize`.
+#[no_mangle]
+pub unsafe extern "C" fn xray_tun_push_packets(
+    handle: *mut XrayCoreHandle,
+    packets: *const *const u8,
+    lengths: *const usize,
+    count: usize,
+    pushed_count: *mut usize,
+    error: *mut *mut XrayError,
+) -> XrayStatus {
+    unsafe {
+        ffi_result_status(error, || {
+            xray_tun_push_packets_inner(handle, packets, lengths, count, pushed_count, error)
+        })
+    }
+}
+
+unsafe fn xray_tun_push_packets_inner(
+    handle: *mut XrayCoreHandle,
+    packets: *const *const u8,
+    lengths: *const usize,
+    count: usize,
+    pushed_count: *mut usize,
+    error: *mut *mut XrayError,
+) -> FfiResult {
+    unsafe {
+        clear_error(error);
+    }
+
+    if !pushed_count.is_null() {
+        unsafe {
+            *pushed_count = 0;
+        }
+    }
+
+    let handle = unsafe { shared_handle(handle, error)? };
+    unsafe {
+        ensure_non_null(pushed_count, error, "pushed_count pointer is null")?;
+    }
+    if count == 0 {
+        return Ok(XrayStatus::Ok);
+    }
+    if packets.is_null() {
+        unsafe {
+            set_error(error, XrayStatus::NullArgument, "packets pointer is null");
+        }
+        return Err(XrayStatus::NullArgument);
+    }
+    if lengths.is_null() {
+        unsafe {
+            set_error(error, XrayStatus::NullArgument, "lengths pointer is null");
+        }
+        return Err(XrayStatus::NullArgument);
+    }
+
+    let core = unsafe { loaded_core(handle, error)? };
+    let mtu = core.tun().mtu();
+
+    let mut accepted = 0usize;
+    for i in 0..count {
+        let pkt_ptr = unsafe { *packets.add(i) };
+        let pkt_len = unsafe { *lengths.add(i) };
+
+        if pkt_ptr.is_null() && pkt_len > 0 {
+            unsafe {
+                set_error(
+                    error,
+                    XrayStatus::NullArgument,
+                    format!("packet {i} data pointer is null"),
+                );
+            }
+            return Err(XrayStatus::NullArgument);
+        }
+        if pkt_len > mtu || pkt_len > isize::MAX as usize {
+            unsafe {
+                set_error(
+                    error,
+                    XrayStatus::InvalidArgument,
+                    format!("packet {i} length {pkt_len} exceeds mtu {mtu}"),
+                );
+            }
+            return Err(XrayStatus::InvalidArgument);
+        }
+
+        let packet = if pkt_len == 0 {
+            Bytes::new()
+        } else {
+            let data = unsafe { slice::from_raw_parts(pkt_ptr, pkt_len) };
+            Bytes::copy_from_slice(data)
+        };
+
+        match handle.runtime.block_on(core.tun().push_inbound(packet)) {
+            Ok(()) => {
+                accepted += 1;
+                unsafe {
+                    *pushed_count = accepted;
+                }
+            }
+            Err(err) => {
+                unsafe {
+                    set_error(error, XrayStatus::TunError, err.to_string());
+                }
+                return Err(XrayStatus::TunError);
+            }
+        }
+    }
+
+    Ok(XrayStatus::Ok)
 }
 
 /// Polls one raw IP packet emitted by the core for the host TUN adapter.
@@ -2469,9 +2625,17 @@ unsafe fn xray_tun_poll_packets_inner(
         return Ok(XrayStatus::Ok);
     }
 
+    let poll_cancel = Arc::clone(&handle.poll_cancel);
     let wait = Duration::from_millis(u64::from(wait_ms));
     let batch = handle.runtime.block_on(async {
-        tokio::time::timeout(wait, tun.poll_outbound_batch(effective_max)).await
+        tokio::select! {
+            res = tokio::time::timeout(wait, tun.poll_outbound_batch(effective_max)) => {
+                res
+            }
+            _ = poll_cancel.notified() => {
+                Ok(Ok(Vec::new()))
+            }
+        }
     });
 
     match batch {
