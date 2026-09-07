@@ -88,6 +88,8 @@ const MAX_DNS_UDP_TASKS: usize = 64;
 const MAX_DNS_TCP_FLOWS: usize = 32;
 const TCP_REMOTE_DRAIN_MAX_PASSES_PER_TICK: usize = 4;
 const TCP_REMOTE_DRAIN_MAX_BYTES_PER_TICK: usize = 4 * 1024 * 1024;
+const TCP_REMOTE_WRITE_QUANTUM_PACKETS: usize = 32;
+const TCP_REMOTE_WRITE_QUANTUM_BYTES: usize = 64 * 1024;
 const TUN_FLOW_STATS_INTERVAL: Duration = Duration::from_secs(1);
 const TUN_BACKPRESSURE_RETRY_INTERVAL: Duration = Duration::from_millis(25);
 const TCP_SLOW_FLOW_THRESHOLD_MS: u64 = 500;
@@ -624,6 +626,7 @@ struct FlowBudgetState {
     memory_budget: Arc<TunByteBudget>,
     pending_remote_by_destination: HashMap<Target, usize>,
     destination_targets: HashMap<SocketHandle, Target>,
+    tcp_scheduler_cursor: usize,
     udp_sequence: u64,
     udp_budget_drops: u64,
     udp_evicted_flows: u64,
@@ -699,7 +702,10 @@ struct DnsQuestion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UdpFlowAdmission {
     Existing,
-    Admit { sequence: u64 },
+    Admit {
+        sequence: u64,
+        evict: Option<UdpFlowKey>,
+    },
     Drop,
 }
 
@@ -761,6 +767,7 @@ impl FlowBudgetState {
             memory_budget,
             pending_remote_by_destination: HashMap::new(),
             destination_targets: HashMap::new(),
+            tcp_scheduler_cursor: 0,
             udp_sequence: 0,
             udp_budget_drops: 0,
             udp_evicted_flows: 0,
@@ -1024,10 +1031,12 @@ impl FlowBudgetState {
         &mut self,
         flows: &mut HashMap<UdpFlowKey, UdpFlow>,
         key: UdpFlowKey,
+        now: StdInstant,
     ) -> UdpFlowAdmission {
         let sequence = self.next_udp_sequence();
         if let Some(flow) = flows.get_mut(&key) {
             flow.last_used_sequence = sequence;
+            flow.last_used_at = now;
             return UdpFlowAdmission::Existing;
         }
 
@@ -1037,23 +1046,27 @@ impl FlowBudgetState {
             return UdpFlowAdmission::Drop;
         }
 
-        if flows.len() >= limit {
-            if let Some(oldest_key) = flows
+        let evict = if flows.len() >= limit {
+            flows
                 .iter()
+                .filter(|(_, flow)| {
+                    flow.task.as_ref().is_none_or(AbortHandle::is_finished)
+                        || now
+                            .checked_duration_since(flow.last_used_at)
+                            .is_some_and(|idle| idle >= UDP_IDLE_TIMEOUT)
+                })
                 .min_by_key(|(_, flow)| flow.last_used_sequence)
                 .map(|(key, _)| *key)
-            {
-                flows.remove(&oldest_key);
-                self.udp_evicted_flows = self.udp_evicted_flows.saturating_add(1);
-            }
-        }
+        } else {
+            None
+        };
 
-        if flows.len() >= limit {
+        if flows.len() >= limit && evict.is_none() {
             self.udp_budget_drops = self.udp_budget_drops.saturating_add(1);
             return UdpFlowAdmission::Drop;
         }
 
-        UdpFlowAdmission::Admit { sequence }
+        UdpFlowAdmission::Admit { sequence, evict }
     }
 
     fn record_udp_channel_drop(&mut self) {
@@ -1062,6 +1075,10 @@ impl FlowBudgetState {
 
     fn record_udp_budget_drop(&mut self) {
         self.udp_budget_drops = self.udp_budget_drops.saturating_add(1);
+    }
+
+    fn record_udp_eviction(&mut self) {
+        self.udp_evicted_flows = self.udp_evicted_flows.saturating_add(1);
     }
 
     fn next_udp_sequence(&mut self) -> u64 {
@@ -1087,7 +1104,6 @@ impl TunPacketOutcome {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct StackEventApplication {
-    continue_draining: bool,
     tcp_stack_dirty: bool,
 }
 
@@ -1989,6 +2005,7 @@ struct UdpFlow {
     to_remote: mpsc::Sender<Bytes>,
     generation: u64,
     last_used_sequence: u64,
+    last_used_at: StdInstant,
     task: Option<AbortHandle>,
 }
 
@@ -2508,7 +2525,11 @@ fn drain_stack_events(
 ) -> bool {
     let mut tcp_stack_dirty = false;
 
-    while let Some(event) = delayed_stack_events.pop_front() {
+    let delayed_count = delayed_stack_events.len();
+    for _ in 0..delayed_count {
+        let Some(event) = delayed_stack_events.pop_front() else {
+            break;
+        };
         let application = apply_or_delay_stack_event(
             event,
             delayed_stack_events,
@@ -2519,9 +2540,6 @@ fn drain_stack_events(
             tun,
         );
         tcp_stack_dirty |= application.tcp_stack_dirty;
-        if !application.continue_draining {
-            return tcp_stack_dirty;
-        }
     }
 
     while let Ok(event) = stack_rx.try_recv() {
@@ -2535,9 +2553,6 @@ fn drain_stack_events(
             tun,
         );
         tcp_stack_dirty |= application.tcp_stack_dirty;
-        if !application.continue_draining {
-            return tcp_stack_dirty;
-        }
     }
 
     tcp_stack_dirty
@@ -2557,19 +2572,13 @@ fn apply_or_delay_stack_event(
         StackEvent::UdpDatagram { .. } | StackEvent::UdpClosed { .. }
     );
     match try_apply_stack_event(event, tcp_flows, flow_budget_state, udp_flows, device) {
-        Ok(()) => StackEventApplication {
-            continue_draining: true,
-            tcp_stack_dirty,
-        },
+        Ok(()) => StackEventApplication { tcp_stack_dirty },
         Err(event) => {
             if let Some(tun) = tun {
                 tun.record_tcp_remote_to_stack_backpressure();
             }
-            delayed_stack_events.push_front(event);
-            StackEventApplication {
-                continue_draining: false,
-                tcp_stack_dirty,
-            }
+            delayed_stack_events.push_back(event);
+            StackEventApplication { tcp_stack_dirty }
         }
     }
 }
@@ -2759,17 +2768,39 @@ fn write_remote_data_to_sockets(
 ) -> usize {
     let mut written_bytes = 0usize;
 
-    for (handle, flow) in flows {
-        let socket = sockets.get_mut::<tcp::Socket>(*handle);
+    let mut handles = flows.keys().copied().collect::<Vec<_>>();
+    let Some(start) = tcp_scheduler_start(&mut handles, flow_budget_state.tcp_scheduler_cursor)
+    else {
+        flow_budget_state.tcp_scheduler_cursor = 0;
+        return 0;
+    };
+    let mut next_cursor = (start + 1) % handles.len();
+    for offset in 0..handles.len() {
+        if written_bytes >= TCP_REMOTE_DRAIN_MAX_BYTES_PER_TICK {
+            break;
+        }
+        let handle = handles[(start + offset) % handles.len()];
+        let Some(flow) = flows.get_mut(&handle) else {
+            continue;
+        };
+        let socket = sockets.get_mut::<tcp::Socket>(handle);
         if flow.remote_aborted {
             socket.abort();
             continue;
         }
-        while socket.can_send() {
+        let mut flow_bytes = 0usize;
+        let mut flow_packets = 0usize;
+        while socket.can_send()
+            && flow_packets < TCP_REMOTE_WRITE_QUANTUM_PACKETS
+            && flow_bytes < TCP_REMOTE_WRITE_QUANTUM_BYTES
+        {
             let Some(front) = flow.pending_remote.front_mut() else {
                 break;
             };
-            let written = match socket.send_slice(front) {
+            let quantum_remaining = TCP_REMOTE_WRITE_QUANTUM_BYTES - flow_bytes;
+            let global_remaining = TCP_REMOTE_DRAIN_MAX_BYTES_PER_TICK - written_bytes;
+            let send_len = front.len().min(quantum_remaining).min(global_remaining);
+            let written = match socket.send_slice(&front[..send_len]) {
                 Ok(written) => written,
                 Err(_) => {
                     socket.abort();
@@ -2780,32 +2811,47 @@ fn write_remote_data_to_sockets(
                 break;
             }
             written_bytes = written_bytes.saturating_add(written);
+            flow_bytes = flow_bytes.saturating_add(written);
+            flow_packets = flow_packets.saturating_add(1);
             let pending_before = flow.pending_remote_bytes;
             if written == front.len() {
-                flow.pending_remote_bytes = flow.pending_remote_bytes.saturating_sub(front.len());
+                flow.pending_remote_bytes = flow.pending_remote_bytes.saturating_sub(written);
                 flow_budget_state.record_pending_remote_dequeue_for_handle(
-                    Some(*handle),
+                    Some(handle),
                     pending_before,
-                    front.len(),
+                    written,
                 );
                 flow.pending_remote.pop_front();
             } else {
                 *front = front.slice(written..);
                 flow.pending_remote_bytes = flow.pending_remote_bytes.saturating_sub(written);
                 flow_budget_state.record_pending_remote_dequeue_for_handle(
-                    Some(*handle),
+                    Some(handle),
                     pending_before,
                     written,
                 );
                 break;
             }
         }
+        if flow_bytes > 0 {
+            next_cursor = (start + offset + 1) % handles.len();
+        }
         if flow.remote_closed && flow.pending_remote.is_empty() && socket.may_send() {
             socket.close();
         }
     }
 
+    flow_budget_state.tcp_scheduler_cursor = next_cursor;
+
     written_bytes
+}
+
+fn tcp_scheduler_start(handles: &mut [SocketHandle], cursor: usize) -> Option<usize> {
+    if handles.is_empty() {
+        return None;
+    }
+    handles.sort_unstable();
+    Some(cursor % handles.len())
 }
 
 fn read_socket_data_to_remote(
@@ -3669,6 +3715,7 @@ where
     let upload_policy = context.runtime_policy.tcp_upload;
     let mut upload_batch = BytesMut::new();
     let mut upload_reservations = Vec::with_capacity(upload_policy.max_batch_messages.min(64));
+    let mut deferred_upload = None;
     let idle_sleep = tokio::time::sleep(idle_timeout);
     tokio::pin!(idle_sleep);
 
@@ -3683,7 +3730,7 @@ where
                 break TcpBridgeTermination::HostClosed;
             }
             () = &mut idle_sleep => break TcpBridgeTermination::Graceful,
-            data = from_stack.recv() => {
+            data = next_stack_upload(&mut deferred_upload, &mut from_stack) => {
                 let Some(data) = data else {
                     break TcpBridgeTermination::Graceful;
                 };
@@ -3706,10 +3753,11 @@ where
                     ),
                 )
                 .await;
-                if !matches!(write, Some(Ok(()))) {
+                let Some(Ok(next_deferred_upload)) = write else {
                     context.tun.record_tcp_remote_write_error();
                     break TcpBridgeTermination::Graceful;
-                }
+                };
+                deferred_upload = next_deferred_upload;
                 idle_sleep
                     .as_mut()
                     .reset(TokioInstant::now() + idle_timeout);
@@ -4141,7 +4189,7 @@ async fn write_stack_batch_to_remote<W>(
     batch: &mut BytesMut,
     reservations: &mut Vec<TcpUploadReservation>,
     traffic: Option<&ConnectionTraffic>,
-) -> std::io::Result<()>
+) -> std::io::Result<Option<StackToRemoteData>>
 where
     W: AsyncWrite + Unpin,
 {
@@ -4154,7 +4202,20 @@ where
     if second.is_none() {
         let batch_bytes = first.len();
         let write_start = StdInstant::now();
-        let write_result = remote_writer.write_all(&first.data).await;
+        let mut write_result = Ok(());
+        let mut batch_messages = 0usize;
+        let mut offset = 0usize;
+        while offset < first.data.len() {
+            let end = offset
+                .saturating_add(policy.max_batch_bytes)
+                .min(first.data.len());
+            write_result = remote_writer.write_all(&first.data[offset..end]).await;
+            if write_result.is_err() {
+                break;
+            }
+            batch_messages = batch_messages.saturating_add(1);
+            offset = end;
+        }
         let write_duration_ms = elapsed_ms_since(&write_start);
         tun.record_tcp_remote_write_wait(write_duration_ms);
         record_tcp_remote_write_slow_event(
@@ -4163,7 +4224,7 @@ where
             outbound_tag,
             write_duration_ms,
             batch_bytes,
-            1,
+            batch_messages,
         );
         write_result?;
         tun.record_tcp_remote_written(batch_bytes);
@@ -4174,8 +4235,8 @@ where
         let flush_result = remote_writer.flush().await;
         tun.record_tcp_remote_flush_wait(elapsed_ms_since(&flush_start));
         flush_result?;
-        tun.record_tcp_remote_write_batch(1, batch_bytes);
-        return Ok(());
+        tun.record_tcp_remote_write_batch(batch_messages, batch_bytes);
+        return Ok(second);
     }
 
     let mut first = first;
@@ -4188,8 +4249,14 @@ where
     }
 
     let mut next = second;
-    while let Some(mut item) = next {
+    while let Some(mut item) = next.take() {
         let data_len = item.data.len();
+        if batch_bytes > policy.max_batch_bytes.saturating_sub(data_len)
+            || batch_messages >= policy.max_batch_messages
+        {
+            next = Some(item);
+            break;
+        }
         batch.extend_from_slice(&item.data);
         if let Some(reservation) = item.reservation.take() {
             reservations.push(reservation);
@@ -4227,7 +4294,18 @@ where
     flush_result?;
     tun.record_tcp_remote_write_batch(batch_messages, batch_bytes);
     reservations.clear();
-    Ok(())
+    Ok(next)
+}
+
+async fn next_stack_upload(
+    deferred_upload: &mut Option<StackToRemoteData>,
+    from_stack: &mut mpsc::Receiver<StackToRemoteData>,
+) -> Option<StackToRemoteData> {
+    if let Some(data) = deferred_upload.take() {
+        Some(data)
+    } else {
+        from_stack.recv().await
+    }
 }
 
 fn handle_udp_packet(
@@ -4240,10 +4318,24 @@ fn handle_udp_packet(
     udp_tasks: &mut JoinSet<()>,
 ) {
     let key = UdpFlowKey::new(packet.client, packet.target);
+    let now = StdInstant::now();
 
-    match flow_budget_state.admit_udp_flow(flows, key) {
-        UdpFlowAdmission::Existing => {}
-        UdpFlowAdmission::Admit { sequence } => {
+    match flow_budget_state.admit_udp_flow(flows, key, now) {
+        UdpFlowAdmission::Existing => {
+            let payload_len = packet.payload.len();
+            let Some(flow) = flows.get(&key) else {
+                return;
+            };
+            if !flow_budget_state.try_reserve_udp_packet(payload_len) {
+                flow_budget_state.record_udp_channel_drop();
+                return;
+            }
+            if flow.to_remote.try_send(packet.payload).is_err() {
+                flow_budget_state.release_udp_packet(payload_len);
+                flow_budget_state.record_udp_channel_drop();
+            }
+        }
+        UdpFlowAdmission::Admit { sequence, evict } => {
             let Some(restored_target) =
                 context.restored_target_from_endpoint(packet.target, RoutingNetwork::Udp)
             else {
@@ -4256,6 +4348,11 @@ fn handle_udp_packet(
             else {
                 return;
             };
+            let payload_len = packet.payload.len();
+            if !flow_budget_state.try_reserve_udp_packet(payload_len) {
+                flow_budget_state.record_udp_channel_drop();
+                return;
+            }
             let udp_timing_start = context
                 .tun_runtime_options
                 .collect_tcp_timings
@@ -4281,24 +4378,28 @@ fn handle_udp_packet(
                     to_remote,
                     generation: sequence,
                     last_used_sequence: sequence,
+                    last_used_at: now,
                     task: Some(task),
                 },
             );
+
+            if let Some(evict_key) = evict {
+                if flows.remove(&evict_key).is_some() {
+                    flow_budget_state.record_udp_eviction();
+                }
+            }
+
+            let Some(flow) = flows.get(&key) else {
+                flow_budget_state.release_udp_packet(payload_len);
+                return;
+            };
+            if flow.to_remote.try_send(packet.payload).is_err() {
+                flow_budget_state.release_udp_packet(payload_len);
+                flows.remove(&key);
+                flow_budget_state.record_udp_channel_drop();
+            }
         }
         UdpFlowAdmission::Drop => return,
-    }
-
-    if let Some(flow) = flows.get(&key) {
-        let payload_len = packet.payload.len();
-        if !flow_budget_state.try_reserve_udp_packet(payload_len) {
-            flow_budget_state.record_udp_channel_drop();
-            return;
-        }
-        if flow.to_remote.try_send(packet.payload).is_err() {
-            flow_budget_state.release_udp_packet(payload_len);
-            flow_budget_state.record_udp_channel_drop();
-            flows.remove(&key);
-        }
     }
 }
 
@@ -6207,6 +6308,30 @@ mod tests {
         StackToRemoteData::untracked(data)
     }
 
+    #[test]
+    fn tcp_scheduler_rotates_the_starting_flow_in_sorted_order() {
+        let mut sockets = SocketSet::new(Vec::new());
+        let make_socket = || {
+            tcp::Socket::new(
+                tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+                tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+            )
+        };
+        let first = sockets.add(make_socket());
+        let second = sockets.add(make_socket());
+        let third = sockets.add(make_socket());
+        let handles = vec![third, first, second];
+
+        let mut starts = Vec::new();
+        for cursor in 0..handles.len() {
+            let mut ordered = handles.clone();
+            let start = tcp_scheduler_start(&mut ordered, cursor).unwrap();
+            starts.push(ordered[start]);
+        }
+
+        assert_eq!(starts, vec![first, second, third]);
+    }
+
     #[tokio::test]
     async fn optional_bridge_operation_timeout_bounds_pending_dns_io() {
         assert_eq!(
@@ -6677,6 +6802,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stack_to_remote_batch_defers_item_that_would_cross_byte_quantum() {
+        let (tx, mut rx) = mpsc::channel(2);
+        tx.try_send(stack_to_remote_data(Bytes::from_static(b"de")))
+            .unwrap();
+        let mut writer = CountingWrite::default();
+        let tun = TunEndpoint::new(xray_tun::TunConfig {
+            mtu: 1500,
+            queue_depth: 1,
+        });
+        let target = test_tcp443_target();
+        let policy = TcpUploadBridgePolicy {
+            channel_depth: 2,
+            max_batch_messages: 8,
+            max_batch_bytes: 4,
+        };
+        let mut batch = BytesMut::new();
+        let mut reservations = Vec::new();
+
+        let deferred = write_stack_batch_to_remote(
+            &mut writer,
+            &target,
+            Some("proxy"),
+            stack_to_remote_data(Bytes::from_static(b"abc")),
+            &mut rx,
+            &tun,
+            policy,
+            &mut batch,
+            &mut reservations,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(writer.written, b"abc");
+        let deferred = deferred.expect("the second message must remain queued");
+        let deferred_result = write_stack_batch_to_remote(
+            &mut writer,
+            &target,
+            Some("proxy"),
+            deferred,
+            &mut rx,
+            &tun,
+            policy,
+            &mut batch,
+            &mut reservations,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(deferred_result.is_none());
+        assert_eq!(writer.written, b"abcde");
+        assert_eq!(tun.stats().await.tcp_remote_write_batch_max_bytes, 3);
+    }
+
+    #[tokio::test]
     async fn stack_to_remote_batch_reuses_copy_buffer() {
         let mut writer = CountingWrite::default();
         let tun = TunEndpoint::new(xray_tun::TunConfig {
@@ -7094,6 +7274,7 @@ mod tests {
                 to_remote,
                 generation: last_used_sequence,
                 last_used_sequence,
+                last_used_at: StdInstant::now(),
                 task: None,
             },
         );
@@ -7253,12 +7434,22 @@ mod tests {
                 to_remote,
                 generation: 1,
                 last_used_sequence: 1,
+                last_used_at: StdInstant::now() - UDP_IDLE_TIMEOUT,
                 task: Some(task),
             },
         );
         let mut budget = test_flow_budget(1);
 
-        let _ = budget.admit_udp_flow(&mut flows, test_udp_key(2));
+        let UdpFlowAdmission::Admit {
+            evict: Some(evict_key),
+            ..
+        } = budget.admit_udp_flow(&mut flows, test_udp_key(2), StdInstant::now())
+        else {
+            panic!("the idle flow should be selected for eviction");
+        };
+        if flows.remove(&evict_key).is_some() {
+            budget.record_udp_eviction();
+        }
         let joined = tokio::time::timeout(Duration::from_secs(1), tasks.join_next())
             .await
             .unwrap()
@@ -7372,12 +7563,14 @@ mod tests {
         let mut budget = test_flow_budget(1);
         let mut flows = HashMap::new();
         let key = test_udp_key(1);
-        let UdpFlowAdmission::Admit { sequence } = budget.admit_udp_flow(&mut flows, key) else {
+        let UdpFlowAdmission::Admit { sequence, .. } =
+            budget.admit_udp_flow(&mut flows, key, StdInstant::now())
+        else {
             panic!("first packet should admit a new UDP flow");
         };
         insert_udp_flow(&mut flows, key, sequence);
 
-        let admission = budget.admit_udp_flow(&mut flows, key);
+        let admission = budget.admit_udp_flow(&mut flows, key, StdInstant::now());
 
         assert!(matches!(admission, UdpFlowAdmission::Existing));
         assert_eq!(flows.len(), 1);
@@ -7394,13 +7587,43 @@ mod tests {
         insert_udp_flow(&mut flows, oldest, 1);
         insert_udp_flow(&mut flows, newest, 2);
 
-        let admitted = budget.admit_udp_flow(&mut flows, test_udp_key(3));
+        let admitted = budget.admit_udp_flow(&mut flows, test_udp_key(3), StdInstant::now());
 
-        assert!(matches!(admitted, UdpFlowAdmission::Admit { .. }));
-        assert!(!flows.contains_key(&oldest));
+        let UdpFlowAdmission::Admit { evict, .. } = admitted else {
+            panic!("an idle flow should be available for eviction");
+        };
+        assert_eq!(evict, Some(oldest));
+        assert!(flows.contains_key(&oldest));
         assert!(flows.contains_key(&newest));
-        assert_eq!(budget.udp_evicted_flows(), 1);
+        assert_eq!(budget.udp_evicted_flows(), 0);
         assert_eq!(budget.udp_budget_drops(), 0);
+    }
+
+    #[tokio::test]
+    async fn flow_budget_drops_new_udp_flow_when_all_existing_flows_are_active() {
+        let mut budget = test_flow_budget(1);
+        let mut flows = HashMap::new();
+        let key = test_udp_key(1);
+        let (to_remote, _from_stack) = mpsc::channel(1);
+        let mut tasks = JoinSet::new();
+        let task = tasks.spawn(std::future::pending::<()>());
+        flows.insert(
+            key,
+            UdpFlow {
+                to_remote,
+                generation: 1,
+                last_used_sequence: 1,
+                last_used_at: StdInstant::now(),
+                task: Some(task),
+            },
+        );
+
+        let admitted = budget.admit_udp_flow(&mut flows, test_udp_key(2), StdInstant::now());
+
+        assert!(matches!(admitted, UdpFlowAdmission::Drop));
+        assert!(flows.contains_key(&key));
+        assert_eq!(budget.udp_evicted_flows(), 0);
+        flows.remove(&key);
     }
 
     #[test]
@@ -7408,7 +7631,7 @@ mod tests {
         let mut budget = test_flow_budget(0);
         let mut flows = HashMap::new();
 
-        let admitted = budget.admit_udp_flow(&mut flows, test_udp_key(1));
+        let admitted = budget.admit_udp_flow(&mut flows, test_udp_key(1), StdInstant::now());
 
         assert!(matches!(admitted, UdpFlowAdmission::Drop));
         assert!(flows.is_empty());
@@ -7591,6 +7814,93 @@ mod tests {
         assert!(flow.pending_remote.is_empty());
         assert_eq!(flow.pending_remote_bytes, NORMAL_TCP_REMOTE_PENDING_LIMIT);
         assert_eq!(delayed_stack_events.len(), 1);
+    }
+
+    #[test]
+    fn blocked_remote_event_does_not_head_of_line_block_other_tcp_flows() {
+        let mut sockets = SocketSet::new(Vec::new());
+        let make_socket = || {
+            tcp::Socket::new(
+                tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+                tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+            )
+        };
+        let blocked_handle = sockets.add(make_socket());
+        let ready_handle = sockets.add(make_socket());
+        let (blocked_tx, _blocked_rx) = mpsc::channel(1);
+        let (ready_tx, _ready_rx) = mpsc::channel(1);
+        let mut tcp_flows = HashMap::from([
+            (
+                blocked_handle,
+                TcpFlow {
+                    generation: 1,
+                    to_remote: blocked_tx,
+                    task: None,
+                    remote_open: true,
+                    pending_remote: VecDeque::new(),
+                    pending_remote_bytes: NORMAL_TCP_REMOTE_PENDING_LIMIT,
+                    remote_closed: false,
+                    remote_aborted: false,
+                    _active_flow: None,
+                    destination_target: None,
+                },
+            ),
+            (
+                ready_handle,
+                TcpFlow {
+                    generation: 1,
+                    to_remote: ready_tx,
+                    task: None,
+                    remote_open: true,
+                    pending_remote: VecDeque::new(),
+                    pending_remote_bytes: 0,
+                    remote_closed: false,
+                    remote_aborted: false,
+                    _active_flow: None,
+                    destination_target: None,
+                },
+            ),
+        ]);
+        let mut flow_budget_state = test_flow_budget(256);
+        flow_budget_state.record_pending_remote_enqueue(0, NORMAL_TCP_REMOTE_PENDING_LIMIT);
+        let mut udp_flows = HashMap::new();
+        let mut device = PacketDevice::new(1500);
+        let (stack_tx, mut stack_rx) = mpsc::channel(2);
+        stack_tx
+            .try_send(StackEvent::RemoteData {
+                handle: blocked_handle,
+                generation: 1,
+                data: Bytes::from_static(b"blocked"),
+            })
+            .unwrap();
+        stack_tx
+            .try_send(StackEvent::RemoteData {
+                handle: ready_handle,
+                generation: 1,
+                data: Bytes::from_static(b"ready"),
+            })
+            .unwrap();
+        let mut delayed_stack_events = VecDeque::new();
+
+        drain_stack_events(
+            &mut stack_rx,
+            &mut delayed_stack_events,
+            &mut tcp_flows,
+            &mut flow_budget_state,
+            &mut udp_flows,
+            &mut device,
+            None,
+        );
+
+        assert_eq!(delayed_stack_events.len(), 1);
+        assert_eq!(
+            tcp_flows[&ready_handle].pending_remote_bytes,
+            b"ready".len()
+        );
+        assert_eq!(
+            tcp_flows[&blocked_handle].pending_remote_bytes,
+            NORMAL_TCP_REMOTE_PENDING_LIMIT
+        );
     }
 
     #[test]
