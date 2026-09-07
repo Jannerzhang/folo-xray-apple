@@ -13,10 +13,10 @@ scope:
   graphCommand: "cargo tree --manifest-path xray-rust-eval/Cargo.toml --locked --package xray-ffi --target aarch64-apple-ios --edges normal"
   graphSha256: c08fdaa0a3f8598fe02412e20aac494c12db0b25e4a67d515250f217571d3235
   metadataCommand: "cargo metadata --manifest-path xray-rust-eval/Cargo.toml --locked --format-version 1"
-  metadataSha256: a6bc8d1d8a9af949571a2b18c520a56e08237055fb52e466ba01fe0b4aa99fa0
-  sbomSha256: d8fc59b01907c04856fcd78412fbbd99ed96d8736f42ba54a7510ce601395c5c
-  sourceCommit: ccc9048bdfaabc21df99c62cd4073dc078c49516
-  sourceTree: b381a4998ee57991201c2b6f457f0c3877e71924
+  metadataSha256: 6030c4db1020d11af2e67fd373401beda46d19a7e2c49731751beb2986bbaac8
+  sbomSha256: 45b2724c9f33008a8928b35c173a61b36434d279e6eb02868ed31036e72a2de5
+  sourceCommit: a2d44dd4afb6bc4c9b7c056813770e896ceb5a08
+  sourceTree: cef7b002e5446e00210dcbcbab73b54e55a3aef0
 
 approved:
   - "MIT/BSD-2-Clause/BSD-3-Clause/ISC/Apache-2.0"
