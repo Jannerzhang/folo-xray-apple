@@ -1042,7 +1042,10 @@ impl FlowBudgetState {
 
         self.refresh_tcp_pressure_state();
         let limit = self.policy.udp.max_active_flows;
-        if limit == 0 || self.tcp_remote.pressure_tier() == MemoryPressureTier::Critical {
+        if limit == 0
+            || (self.tcp_remote.pressure_tier() == MemoryPressureTier::Critical
+                && !is_priority_udp_port(key.target.port))
+        {
             self.udp_budget_drops = self.udp_budget_drops.saturating_add(1);
             return UdpFlowAdmission::Drop;
         }
@@ -1245,7 +1248,7 @@ pub(crate) async fn serve_tun_endpoint(
                     Err(_) => {}
                 }
             }
-            event = stack_rx.recv(), if delayed_stack_events.is_empty() => {
+            event = stack_rx.recv() => {
                 if let Some(event) = event {
                     let application = apply_or_delay_stack_event(
                         event,
@@ -1586,24 +1589,11 @@ async fn process_tun_packet(
                         tcp_stack_dirty: false,
                     };
                 };
-                let global_permit = Arc::clone(&context.udp_task_permits).try_acquire_owned();
-                let Ok(global_permit) = global_permit else {
-                    flow_budget_state.record_udp_budget_drop();
-                    if let Some(reply) =
-                        dns_proxy::dns_error_reply_packet(&udp_packet, DNS_RCODE_SERVFAIL)
-                    {
-                        let _ = tun.push_outbound(reply).await;
-                    }
-                    return TunPacketOutcome::Continue {
-                        tcp_stack_dirty: false,
-                    };
-                };
                 udp_tasks.spawn(dns_proxy::bridge_udp_query(
                     plan,
                     udp_packet,
                     context.clone(),
                     shutdown,
-                    global_permit,
                     dns_permit,
                 ));
                 return TunPacketOutcome::Continue {
@@ -1628,18 +1618,6 @@ async fn process_tun_packet(
                         tcp_stack_dirty: false,
                     };
                 };
-                let global_permit = Arc::clone(&context.udp_task_permits).try_acquire_owned();
-                let Ok(global_permit) = global_permit else {
-                    flow_budget_state.record_udp_budget_drop();
-                    if let Some(reply) =
-                        dns_proxy::dns_error_reply_packet(&udp_packet, DNS_RCODE_SERVFAIL)
-                    {
-                        let _ = tun.push_outbound(reply).await;
-                    }
-                    return TunPacketOutcome::Continue {
-                        tcp_stack_dirty: false,
-                    };
-                };
                 udp_tasks.spawn(dns_proxy::bridge_dns_outbound_udp_query(
                     outbound,
                     decision,
@@ -1647,7 +1625,6 @@ async fn process_tun_packet(
                     udp_packet,
                     context.clone(),
                     shutdown,
-                    global_permit,
                     dns_permit,
                 ));
                 return TunPacketOutcome::Continue {
@@ -2211,7 +2188,7 @@ fn open_ready_tcp_flows(
                         endpoint,
                         "TUN TCP memory pressure critical",
                     );
-                    insert_aborted_tcp_flow(handle, generation, flows);
+                    insert_aborted_tcp_flow(sockets, handle, generation, flows);
                     continue;
                 }
                 let active_flow_permit =
@@ -2223,7 +2200,7 @@ fn open_ready_tcp_flows(
                                 endpoint,
                                 "TUN TCP active flow limit reached",
                             );
-                            insert_aborted_tcp_flow(handle, generation, flows);
+                            insert_aborted_tcp_flow(sockets, handle, generation, flows);
                             continue;
                         }
                     };
@@ -2236,7 +2213,7 @@ fn open_ready_tcp_flows(
                                 endpoint,
                                 "TUN DNS TCP flow limit reached",
                             );
-                            insert_aborted_tcp_flow(handle, generation, flows);
+                            insert_aborted_tcp_flow(sockets, handle, generation, flows);
                             continue;
                         }
                     }
@@ -2252,7 +2229,7 @@ fn open_ready_tcp_flows(
                                 endpoint,
                                 "TUN TCP pending-open limit reached",
                             );
-                            insert_aborted_tcp_flow(handle, generation, flows);
+                            insert_aborted_tcp_flow(sockets, handle, generation, flows);
                             continue;
                         }
                     };
@@ -2274,7 +2251,7 @@ fn open_ready_tcp_flows(
                         endpoint,
                         "TUN TCP memory pressure critical",
                     );
-                    insert_aborted_tcp_flow(handle, generation, flows);
+                    insert_aborted_tcp_flow(sockets, handle, generation, flows);
                     continue;
                 }
                 let active_flow_permit =
@@ -2286,7 +2263,7 @@ fn open_ready_tcp_flows(
                                 endpoint,
                                 "TUN TCP active flow limit reached",
                             );
-                            insert_aborted_tcp_flow(handle, generation, flows);
+                            insert_aborted_tcp_flow(sockets, handle, generation, flows);
                             continue;
                         }
                     };
@@ -2298,7 +2275,7 @@ fn open_ready_tcp_flows(
                             endpoint,
                             "TUN fake DNS TCP flow limit reached",
                         );
-                        insert_aborted_tcp_flow(handle, generation, flows);
+                        insert_aborted_tcp_flow(sockets, handle, generation, flows);
                         continue;
                     }
                 };
@@ -2310,7 +2287,7 @@ fn open_ready_tcp_flows(
             }
             ReadyTcpFlow::Reject(reason) => {
                 record_tcp_endpoint_rejection(context, endpoint, reason);
-                insert_aborted_tcp_flow(handle, generation, flows);
+                insert_aborted_tcp_flow(sockets, handle, generation, flows);
                 continue;
             }
             ReadyTcpFlow::Closed => {
@@ -2422,10 +2399,12 @@ fn open_ready_tcp_flows(
 }
 
 fn insert_aborted_tcp_flow(
+    sockets: &mut SocketSet<'static>,
     handle: SocketHandle,
     generation: u64,
     flows: &mut HashMap<SocketHandle, TcpFlow>,
 ) {
+    sockets.get_mut::<tcp::Socket>(handle).abort();
     let (to_remote, from_stack) = mpsc::channel(1);
     drop(from_stack);
     flows.insert(
@@ -2560,7 +2539,7 @@ fn drain_stack_events(
         let Some(event) = delayed_stack_events.pop_front() else {
             break;
         };
-        let application = apply_or_delay_stack_event(
+        let application = apply_delayed_stack_event(
             event,
             delayed_stack_events,
             tcp_flows,
@@ -2588,6 +2567,31 @@ fn drain_stack_events(
     tcp_stack_dirty
 }
 
+fn apply_delayed_stack_event(
+    event: StackEvent,
+    delayed_stack_events: &mut VecDeque<StackEvent>,
+    tcp_flows: &mut HashMap<SocketHandle, TcpFlow>,
+    flow_budget_state: &mut FlowBudgetState,
+    udp_flows: &mut HashMap<UdpFlowKey, UdpFlow>,
+    device: &mut PacketDevice,
+    tun: Option<&TunEndpoint>,
+) -> StackEventApplication {
+    let tcp_stack_dirty = !matches!(
+        &event,
+        StackEvent::UdpDatagram { .. } | StackEvent::UdpClosed { .. }
+    );
+    match try_apply_stack_event(event, tcp_flows, flow_budget_state, udp_flows, device) {
+        Ok(()) => StackEventApplication { tcp_stack_dirty },
+        Err(event) => {
+            if let Some(tun) = tun {
+                tun.record_tcp_remote_to_stack_backpressure();
+            }
+            delayed_stack_events.push_back(event);
+            StackEventApplication { tcp_stack_dirty }
+        }
+    }
+}
+
 fn apply_or_delay_stack_event(
     event: StackEvent,
     delayed_stack_events: &mut VecDeque<StackEvent>,
@@ -2601,6 +2605,23 @@ fn apply_or_delay_stack_event(
         &event,
         StackEvent::UdpDatagram { .. } | StackEvent::UdpClosed { .. }
     );
+    if let StackEvent::RemoteAborted { handle, .. } = &event {
+        delayed_stack_events
+            .retain(|e| !matches!(e, StackEvent::RemoteData { handle: h, .. } if *h == *handle));
+    }
+    let has_delayed_for_handle = match &event {
+        StackEvent::RemoteData { handle, .. } => delayed_stack_events
+            .iter()
+            .any(|e| matches!(e, StackEvent::RemoteData { handle: h, .. } if *h == *handle)),
+        _ => false,
+    };
+    if has_delayed_for_handle {
+        if let Some(tun) = tun {
+            tun.record_tcp_remote_to_stack_backpressure();
+        }
+        delayed_stack_events.push_back(event);
+        return StackEventApplication { tcp_stack_dirty };
+    }
     match try_apply_stack_event(event, tcp_flows, flow_budget_state, udp_flows, device) {
         Ok(()) => StackEventApplication { tcp_stack_dirty },
         Err(event) => {
@@ -2945,13 +2966,20 @@ fn cleanup_closed_tcp_flows(
     flows: &mut HashMap<SocketHandle, TcpFlow>,
     flow_budget_state: &mut FlowBudgetState,
 ) {
-    let closed = flows
-        .keys()
-        .copied()
-        .filter(|handle| !sockets.get::<tcp::Socket>(*handle).is_open())
-        .collect::<Vec<_>>();
+    let mut closed = Vec::new();
+    for (&handle, flow) in flows.iter() {
+        let is_open = sockets.get::<tcp::Socket>(handle).is_open();
+        let is_finished = flow.task.as_ref().is_some_and(AbortHandle::is_finished);
+        if !is_open || flow.remote_aborted || (is_finished && flow.pending_remote.is_empty()) {
+            closed.push(handle);
+        }
+    }
 
     for handle in closed {
+        let socket = sockets.get_mut::<tcp::Socket>(handle);
+        if socket.is_open() {
+            socket.abort();
+        }
         if let Some(flow) = flows.remove(&handle) {
             flow_budget_state.record_pending_remote_remove_flow_for_handle(
                 Some(handle),
@@ -5454,6 +5482,10 @@ fn is_priority_tcp_port(port: u16) -> bool {
     port == 53 || port == 853 || port == 443
 }
 
+fn is_priority_udp_port(port: u16) -> bool {
+    port == 53 || port == 853 || port == 5353
+}
+
 fn admit_tcp_listener(
     sockets: &mut SocketSet<'static>,
     listeners: &mut HashMap<IpEndpoint, TcpListenerState>,
@@ -7300,6 +7332,19 @@ mod tests {
         }
     }
 
+    fn test_dns_udp_key(octet: u8) -> UdpFlowKey {
+        UdpFlowKey {
+            client: EndpointKey {
+                addr: IpAddr::V4(Ipv4Addr::new(10, 0, 0, octet)),
+                port: 40_000 + u16::from(octet),
+            },
+            target: EndpointKey {
+                addr: IpAddr::V4(Ipv4Addr::new(198, 18, 0, octet)),
+                port: 53,
+            },
+        }
+    }
+
     fn insert_udp_flow(
         flows: &mut HashMap<UdpFlowKey, UdpFlow>,
         key: UdpFlowKey,
@@ -7744,6 +7789,26 @@ mod tests {
         assert_eq!(budget.udp_budget_drops(), 1);
     }
 
+    #[test]
+    fn flow_budget_admits_dns_udp_flow_under_critical_memory_pressure() {
+        let mut budget = test_flow_budget(256);
+        let mut flows = HashMap::new();
+        let dns_fresh = test_dns_udp_key(1);
+
+        assert!(budget.try_reserve_pending_upload(
+            MOBILE_TCP_REMOTE_BUFFER_POLICY.critical_start_total_bytes
+        ));
+        assert_eq!(
+            budget.tcp_remote.pressure_tier(),
+            MemoryPressureTier::Critical
+        );
+
+        // Priority DNS queries on port 53 are admitted even during Critical TCP pressure
+        let dns_admitted = budget.admit_udp_flow(&mut flows, dns_fresh, StdInstant::now());
+        assert!(matches!(dns_admitted, UdpFlowAdmission::Admit { .. }));
+        assert_eq!(budget.udp_budget_drops(), 0);
+    }
+
     #[tokio::test]
     async fn upload_tcp_data_backpressures_when_combined_budget_is_full() {
         let client_ip = Ipv4Addr::new(10, 10, 0, 2);
@@ -7976,6 +8041,207 @@ mod tests {
             tcp_flows[&blocked_handle].pending_remote_bytes,
             NORMAL_TCP_REMOTE_PENDING_LIMIT
         );
+    }
+
+    #[test]
+    fn delayed_stack_events_does_not_block_new_control_events_and_preserves_per_flow_order() {
+        let mut sockets = SocketSet::new(Vec::new());
+        let make_socket = || {
+            tcp::Socket::new(
+                tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+                tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+            )
+        };
+        let handle1 = sockets.add(make_socket());
+        let handle2 = sockets.add(make_socket());
+        let (tx1, _rx1) = mpsc::channel(1);
+        let (tx2, _rx2) = mpsc::channel(1);
+        let mut tcp_flows = HashMap::from([
+            (
+                handle1,
+                TcpFlow {
+                    generation: 1,
+                    to_remote: tx1,
+                    task: None,
+                    remote_open: true,
+                    pending_remote: VecDeque::new(),
+                    pending_remote_bytes: NORMAL_TCP_REMOTE_PENDING_LIMIT,
+                    remote_closed: false,
+                    remote_aborted: false,
+                    _active_flow: None,
+                    destination_target: None,
+                },
+            ),
+            (
+                handle2,
+                TcpFlow {
+                    generation: 1,
+                    to_remote: tx2,
+                    task: None,
+                    remote_open: false,
+                    pending_remote: VecDeque::new(),
+                    pending_remote_bytes: 0,
+                    remote_closed: false,
+                    remote_aborted: false,
+                    _active_flow: None,
+                    destination_target: None,
+                },
+            ),
+        ]);
+        let mut flow_budget_state = test_flow_budget(256);
+        flow_budget_state.record_pending_remote_enqueue(0, NORMAL_TCP_REMOTE_PENDING_LIMIT);
+        let mut udp_flows = HashMap::new();
+        let mut device = PacketDevice::new(1500);
+        let (stack_tx, mut stack_rx) = mpsc::channel(4);
+
+        // 1. First event: handle1 data that exceeds limit -> delayed
+        stack_tx
+            .try_send(StackEvent::RemoteData {
+                handle: handle1,
+                generation: 1,
+                data: Bytes::from_static(b"h1_chunk1"),
+            })
+            .unwrap();
+        // 2. Control event for handle2 -> should be applied immediately
+        stack_tx
+            .try_send(StackEvent::RemoteOpened {
+                handle: handle2,
+                generation: 1,
+            })
+            .unwrap();
+        // 3. UDP datagram event -> should be applied immediately
+        stack_tx
+            .try_send(StackEvent::UdpDatagram {
+                client: IpEndpoint::new(IpAddress::Ipv4(Ipv4Addr::new(10, 0, 0, 1)), 50000),
+                source: IpEndpoint::new(IpAddress::Ipv4(Ipv4Addr::new(198, 18, 0, 1)), 53),
+                payload: Bytes::from_static(b"dns_reply"),
+            })
+            .unwrap();
+        // 4. Second event for handle1 -> should be queued behind chunk1 in delayed_stack_events
+        stack_tx
+            .try_send(StackEvent::RemoteData {
+                handle: handle1,
+                generation: 1,
+                data: Bytes::from_static(b"h1_chunk2"),
+            })
+            .unwrap();
+
+        let mut delayed_stack_events = VecDeque::new();
+        drain_stack_events(
+            &mut stack_rx,
+            &mut delayed_stack_events,
+            &mut tcp_flows,
+            &mut flow_budget_state,
+            &mut udp_flows,
+            &mut device,
+            None,
+        );
+
+        // Control event for handle2 applied immediately
+        assert!(tcp_flows[&handle2].remote_open);
+        // UDP datagram delivered to device outbound immediately
+        assert!(device.has_pending_outbound());
+        // Delayed events for handle1 preserved in order
+        assert_eq!(delayed_stack_events.len(), 2);
+        if let Some(StackEvent::RemoteData { data, .. }) = delayed_stack_events.front() {
+            assert_eq!(data.as_ref(), b"h1_chunk1");
+        } else {
+            panic!("Expected RemoteData h1_chunk1 at front");
+        }
+    }
+
+    #[test]
+    fn remote_aborted_purges_queued_remote_data_for_that_flow() {
+        let mut sockets = SocketSet::new(Vec::new());
+        let handle = sockets.add(tcp::Socket::new(
+            tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+            tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+        ));
+        let (tx, _rx) = mpsc::channel(1);
+        let mut tcp_flows = HashMap::from([(
+            handle,
+            TcpFlow {
+                generation: 1,
+                to_remote: tx,
+                task: None,
+                remote_open: true,
+                pending_remote: VecDeque::new(),
+                pending_remote_bytes: NORMAL_TCP_REMOTE_PENDING_LIMIT,
+                remote_closed: false,
+                remote_aborted: false,
+                _active_flow: None,
+                destination_target: None,
+            },
+        )]);
+        let mut flow_budget_state = test_flow_budget(256);
+        let mut udp_flows = HashMap::new();
+        let mut device = PacketDevice::new(1500);
+        let (stack_tx, mut stack_rx) = mpsc::channel(2);
+
+        stack_tx
+            .try_send(StackEvent::RemoteData {
+                handle,
+                generation: 1,
+                data: Bytes::from_static(b"queued_chunk"),
+            })
+            .unwrap();
+        stack_tx
+            .try_send(StackEvent::RemoteAborted {
+                handle,
+                generation: 1,
+            })
+            .unwrap();
+
+        let mut delayed_stack_events = VecDeque::new();
+        drain_stack_events(
+            &mut stack_rx,
+            &mut delayed_stack_events,
+            &mut tcp_flows,
+            &mut flow_budget_state,
+            &mut udp_flows,
+            &mut device,
+            None,
+        );
+
+        // Aborted event sets remote_aborted and purges delayed data for that handle
+        assert!(tcp_flows[&handle].remote_aborted);
+        assert!(delayed_stack_events.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cleanup_closed_tcp_flows_reclaims_permit_when_task_is_finished_or_aborted() {
+        let mut sockets = SocketSet::new(Vec::new());
+        let handle = sockets.add(tcp::Socket::new(
+            tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+            tcp::SocketBuffer::new(vec![0; TCP_BUFFER_SIZE]),
+        ));
+        let semaphore = Arc::new(Semaphore::new(1));
+        let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
+        assert_eq!(semaphore.available_permits(), 0);
+
+        let (tx, _rx) = mpsc::channel(1);
+        let mut tcp_flows = HashMap::from([(
+            handle,
+            TcpFlow {
+                generation: 1,
+                to_remote: tx,
+                task: None,
+                remote_open: true,
+                pending_remote: VecDeque::new(),
+                pending_remote_bytes: 0,
+                remote_closed: false,
+                remote_aborted: true,
+                _active_flow: Some(permit),
+                destination_target: None,
+            },
+        )]);
+        let mut flow_budget_state = test_flow_budget(256);
+
+        cleanup_closed_tcp_flows(&mut sockets, &mut tcp_flows, &mut flow_budget_state);
+
+        // Flow removed, socket removed, permit returned to semaphore
+        assert!(tcp_flows.is_empty());
+        assert_eq!(semaphore.available_permits(), 1);
     }
 
     #[test]

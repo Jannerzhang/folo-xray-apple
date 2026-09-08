@@ -914,10 +914,6 @@ pub(super) fn udp_action(
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "TUN DNS query owns mapped target, policy decision, shutdown, and admission permits"
-)]
 pub(super) async fn bridge_dns_outbound_udp_query(
     outbound: DnsOutbound,
     _decision: crate::DnsOutboundDecision,
@@ -925,7 +921,6 @@ pub(super) async fn bridge_dns_outbound_udp_query(
     packet: UdpTunPacket,
     context: TunRuntimeContext,
     mut shutdown: watch::Receiver<bool>,
-    _global_permit: OwnedSemaphorePermit,
     _dns_permit: OwnedSemaphorePermit,
 ) {
     let path_payload_cap = dns_udp_path_payload_cap(context.tun.mtu(), packet.target);
@@ -953,7 +948,6 @@ pub(super) async fn bridge_udp_query(
     packet: UdpTunPacket,
     context: TunRuntimeContext,
     mut shutdown: watch::Receiver<bool>,
-    _global_permit: OwnedSemaphorePermit,
     _dns_permit: OwnedSemaphorePermit,
 ) {
     if !is_dns_query(&packet.payload) {
