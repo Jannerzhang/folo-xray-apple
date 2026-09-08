@@ -153,13 +153,13 @@ const MOBILE_PLUS_TCP_REMOTE_BUFFER_POLICY: TcpRemoteBufferPolicy = TcpRemoteBuf
 };
 
 const FOLO_IOS_TCP_REMOTE_BUFFER_POLICY: TcpRemoteBufferPolicy = TcpRemoteBufferPolicy {
-    normal_per_flow_bytes: 768 * 1024,
-    pressure_per_flow_bytes: 256 * 1024,
-    pressure_start_total_bytes: 12 * 1024 * 1024,
-    pressure_release_total_bytes: 8 * 1024 * 1024,
-    critical_start_total_bytes: 18 * 1024 * 1024,
-    critical_release_total_bytes: 14 * 1024 * 1024,
-    hard_total_bytes: 22 * 1024 * 1024,
+    normal_per_flow_bytes: 512 * 1024,
+    pressure_per_flow_bytes: 128 * 1024,
+    pressure_start_total_bytes: 6 * 1024 * 1024,
+    pressure_release_total_bytes: 4 * 1024 * 1024,
+    critical_start_total_bytes: 8 * 1024 * 1024,
+    critical_release_total_bytes: 6 * 1024 * 1024,
+    hard_total_bytes: 10 * 1024 * 1024,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
