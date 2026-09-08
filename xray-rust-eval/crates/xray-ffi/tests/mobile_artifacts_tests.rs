@@ -1117,7 +1117,7 @@ fn build_native_staticlib(root: &Path) -> PathBuf {
     // toolchain's `nm` may not be able to read when its LLVM is older than
     // rustc's; scan a non-LTO build so members are plain machine objects.
     let build = Command::new("cargo")
-        .current_dir(&root)
+        .current_dir(root)
         .args([
             "build",
             "--locked",

@@ -1040,8 +1040,9 @@ impl FlowBudgetState {
             return UdpFlowAdmission::Existing;
         }
 
+        self.refresh_tcp_pressure_state();
         let limit = self.policy.udp.max_active_flows;
-        if limit == 0 {
+        if limit == 0 || self.tcp_remote.pressure_tier() == MemoryPressureTier::Critical {
             self.udp_budget_drops = self.udp_budget_drops.saturating_add(1);
             return UdpFlowAdmission::Drop;
         }
@@ -1669,7 +1670,14 @@ async fn process_tun_packet(
         };
     }
     if let Some(endpoint) = tcp_syn_destination(&packet) {
-        admit_tcp_listener(sockets, tcp_listeners, tcp_flows.len(), endpoint, context);
+        admit_tcp_listener(
+            sockets,
+            tcp_listeners,
+            tcp_flows.len(),
+            endpoint,
+            flow_budget_state,
+            context,
+        );
         device.push_inbound(packet);
         iface.poll(Instant::now(), device, sockets);
         open_ready_tcp_flows(
@@ -2195,6 +2203,17 @@ fn open_ready_tcp_flows(
         let generation = context.tcp_flow_generation.fetch_add(1, Ordering::Relaxed);
         let admitted = match ready {
             ReadyTcpFlow::Bridge(destination) => {
+                if flow_budget_state.tcp_remote.pressure_tier() == MemoryPressureTier::Critical
+                    && !is_priority_tcp_port(endpoint.port)
+                {
+                    record_tcp_admission_rejection(
+                        context,
+                        endpoint,
+                        "TUN TCP memory pressure critical",
+                    );
+                    insert_aborted_tcp_flow(handle, generation, flows);
+                    continue;
+                }
                 let active_flow_permit =
                     match Arc::clone(&context.tcp_active_flow_permits).try_acquire_owned() {
                         Ok(permit) => permit,
@@ -2247,6 +2266,17 @@ fn open_ready_tcp_flows(
                 }
             }
             ReadyTcpFlow::FakeDns(mapper) => {
+                if flow_budget_state.tcp_remote.pressure_tier() == MemoryPressureTier::Critical
+                    && !is_priority_tcp_port(endpoint.port)
+                {
+                    record_tcp_admission_rejection(
+                        context,
+                        endpoint,
+                        "TUN TCP memory pressure critical",
+                    );
+                    insert_aborted_tcp_flow(handle, generation, flows);
+                    continue;
+                }
                 let active_flow_permit =
                     match Arc::clone(&context.tcp_active_flow_permits).try_acquire_owned() {
                         Ok(permit) => permit,
@@ -4399,7 +4429,7 @@ fn handle_udp_packet(
                 flow_budget_state.record_udp_channel_drop();
             }
         }
-        UdpFlowAdmission::Drop => return,
+        UdpFlowAdmission::Drop => {}
     }
 }
 
@@ -5429,9 +5459,17 @@ fn admit_tcp_listener(
     listeners: &mut HashMap<IpEndpoint, TcpListenerState>,
     active_flow_count: usize,
     endpoint: IpEndpoint,
+    flow_budget_state: &FlowBudgetState,
     context: &TunRuntimeContext,
 ) {
     if listeners.contains_key(&endpoint) {
+        return;
+    }
+
+    if flow_budget_state.tcp_remote.pressure_tier() == MemoryPressureTier::Critical
+        && !is_priority_tcp_port(endpoint.port)
+    {
+        record_tcp_admission_rejection(context, endpoint, "TUN TCP memory pressure critical");
         return;
     }
 
@@ -7667,6 +7705,43 @@ mod tests {
 
         budget.record_pending_upload_dequeue(1);
         assert_eq!(budget.per_flow_limit(), NORMAL_TCP_REMOTE_PENDING_LIMIT);
+    }
+
+    #[test]
+    fn flow_budget_drops_new_udp_flow_under_critical_memory_pressure() {
+        let mut budget = test_flow_budget(256);
+        let mut flows = HashMap::new();
+        let existing = test_udp_key(1);
+        let fresh = test_udp_key(2);
+        insert_udp_flow(&mut flows, existing, 1);
+
+        assert!(budget.try_reserve_pending_upload(
+            MOBILE_TCP_REMOTE_BUFFER_POLICY.critical_start_total_bytes
+        ));
+        assert_eq!(
+            budget.tcp_remote.pressure_tier(),
+            MemoryPressureTier::Critical
+        );
+
+        let existing_admitted = budget.admit_udp_flow(&mut flows, existing, StdInstant::now());
+        assert!(matches!(existing_admitted, UdpFlowAdmission::Existing));
+        assert_eq!(budget.udp_budget_drops(), 0);
+
+        let fresh_admitted = budget.admit_udp_flow(&mut flows, fresh, StdInstant::now());
+        assert!(matches!(fresh_admitted, UdpFlowAdmission::Drop));
+        assert_eq!(budget.udp_budget_drops(), 1);
+
+        let release_bytes = MOBILE_TCP_REMOTE_BUFFER_POLICY.critical_start_total_bytes
+            - MOBILE_TCP_REMOTE_BUFFER_POLICY.critical_release_total_bytes;
+        budget.record_pending_upload_dequeue(release_bytes);
+        assert_ne!(
+            budget.tcp_remote.pressure_tier(),
+            MemoryPressureTier::Critical
+        );
+
+        let restored_admitted = budget.admit_udp_flow(&mut flows, fresh, StdInstant::now());
+        assert!(matches!(restored_admitted, UdpFlowAdmission::Admit { .. }));
+        assert_eq!(budget.udp_budget_drops(), 1);
     }
 
     #[tokio::test]
