@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 
 use xray_ffi::{
     xray_core_clear_outbound_selector_override, xray_core_close_connection,
-    xray_core_config_warnings, xray_core_connection_snapshot_json, xray_core_free,
+    xray_core_config_warnings, xray_core_connection_events_json,
+    xray_core_connection_snapshot_json, xray_core_free,
     xray_core_load_config_json, xray_core_new, xray_core_outbound_accounting_snapshot_json,
     xray_core_outbound_health_snapshot_json, xray_core_outbound_selection_snapshot_json,
     xray_core_replace_routing_policy_json, xray_core_routing_policy_snapshot_json,
@@ -26,7 +27,8 @@ use xray_ffi::{
     XrayTunFdPacketFormat, XrayTunRuntimeProfile, XrayTunStats, XrayUdpQuicBlockedEvent,
     XrayUdpResponseGapEvent, XrayUdpSlowFlowEvent, XRAY_FFI_ABI_MAJOR, XRAY_FFI_ABI_MINOR,
     XRAY_FFI_CAPABILITIES, XRAY_FFI_CAPABILITY_CONFIG_WARNINGS,
-    XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT, XRAY_FFI_CAPABILITY_DNS_BOOTSTRAP_POLICY,
+    XRAY_FFI_CAPABILITY_CONNECTION_EVENTS, XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT,
+    XRAY_FFI_CAPABILITY_DNS_BOOTSTRAP_POLICY,
     XRAY_FFI_CAPABILITY_FILE_LOGGING, XRAY_FFI_CAPABILITY_GEODATA_SEARCH,
     XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH, XRAY_FFI_CAPABILITY_OUTBOUND_SELECTION,
     XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE, XRAY_FFI_CAPABILITY_SOCKET_PROTECTION,
@@ -61,7 +63,8 @@ fn ffi_reports_exact_current_capabilities() {
         | XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH
         | XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT
         | XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE
-        | XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH;
+        | XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH
+        | XRAY_FFI_CAPABILITY_CONNECTION_EVENTS;
 
     assert_eq!(XRAY_FFI_CAPABILITIES, expected);
     assert_eq!(xray_ffi_capabilities(), expected);
@@ -462,6 +465,54 @@ fn ffi_connection_and_accounting_snapshots_have_stable_empty_schema() {
     assert_eq!(accounting["revision"], 0);
     assert_eq!(accounting["outbounds"], serde_json::json!([]));
 
+    let events = read_connection_events_json(core, 0, 64, &mut err);
+    assert_eq!(events["schemaVersion"], 1);
+    assert_eq!(events["latestCursor"], 0);
+    assert_eq!(events["droppedCount"], 0);
+    assert_eq!(events["hasMore"], false);
+    assert_eq!(events["events"], serde_json::json!([]));
+
+    unsafe { xray_core_free(core) };
+}
+
+#[test]
+fn ffi_connection_events_reject_invalid_page_limits() {
+    let mut err = std::ptr::null_mut();
+    let core = loaded_core(&mut err);
+    let mut written = 0;
+
+    assert_eq!(
+        unsafe {
+            xray_core_connection_events_json(
+                core,
+                0,
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut written,
+                &mut err,
+            )
+        },
+        XrayStatus::InvalidArgument
+    );
+    assert_error(&mut err, XrayStatus::InvalidArgument, "between 1 and 64");
+
+    assert_eq!(
+        unsafe {
+            xray_core_connection_events_json(
+                core,
+                0,
+                65,
+                std::ptr::null_mut(),
+                0,
+                &mut written,
+                &mut err,
+            )
+        },
+        XrayStatus::InvalidArgument
+    );
+    assert_error(&mut err, XrayStatus::InvalidArgument, "between 1 and 64");
+
     unsafe { xray_core_free(core) };
 }
 
@@ -568,6 +619,20 @@ fn ffi_connection_snapshot_close_and_accounting_control_live_socks_flow() {
     assert_eq!(direct["hostClosedConnections"], 1);
     assert_eq!(direct["uplinkBytes"], payload.len());
     assert_eq!(direct["downlinkBytes"], payload.len());
+
+    let events = read_connection_events_json(core, 0, 64, &mut err);
+    assert_eq!(events["latestCursor"], 1);
+    assert_eq!(events["droppedCount"], 0);
+    assert_eq!(events["hasMore"], false);
+    let event = &events["events"][0];
+    assert_eq!(event["connectionId"], connection_id);
+    assert_eq!(event["outboundTag"], "direct");
+    assert_eq!(event["network"], "tcp");
+    assert_eq!(event["addressType"], "ip");
+    assert_eq!(event["port"], echo_addr.port());
+    assert_eq!(event["uplinkBytes"], payload.len());
+    assert_eq!(event["downlinkBytes"], payload.len());
+    assert_eq!(event["closedByHost"], true);
 
     assert_eq!(unsafe { xray_core_stop(core, &mut err) }, XrayStatus::Ok);
     unsafe { xray_core_free(core) };
@@ -3015,6 +3080,16 @@ type SnapshotJsonFn = unsafe extern "C" fn(
     *mut *mut xray_ffi::XrayError,
 ) -> XrayStatus;
 
+type ConnectionEventsJsonFn = unsafe extern "C" fn(
+    *const xray_ffi::XrayCoreHandle,
+    u64,
+    usize,
+    *mut libc::c_char,
+    usize,
+    *mut usize,
+    *mut *mut xray_ffi::XrayError,
+) -> XrayStatus;
+
 fn read_snapshot_json(
     core: *mut xray_ffi::XrayCoreHandle,
     snapshot: SnapshotJsonFn,
@@ -3043,6 +3118,58 @@ fn read_snapshot_json(
             .collect::<Vec<_>>(),
     )
     .expect("valid snapshot JSON")
+}
+
+fn read_connection_events_json(
+    core: *mut xray_ffi::XrayCoreHandle,
+    after_cursor: u64,
+    limit: usize,
+    error: &mut *mut xray_ffi::XrayError,
+) -> serde_json::Value {
+    let snapshot: ConnectionEventsJsonFn = xray_core_connection_events_json;
+    let mut required = 0;
+    assert_eq!(
+        unsafe {
+            snapshot(
+                core,
+                after_cursor,
+                limit,
+                std::ptr::null_mut(),
+                0,
+                &mut required,
+                error,
+            )
+        },
+        XrayStatus::Ok,
+        "connection event size error: {}",
+        error_message(*error)
+    );
+    let mut buffer = vec![0 as libc::c_char; required + 1];
+    let mut written = 0;
+    assert_eq!(
+        unsafe {
+            snapshot(
+                core,
+                after_cursor,
+                limit,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut written,
+                error,
+            )
+        },
+        XrayStatus::Ok,
+        "connection event read error: {}",
+        error_message(*error)
+    );
+    assert_eq!(written, required);
+    serde_json::from_slice(
+        &buffer[..written]
+            .iter()
+            .map(|byte| *byte as u8)
+            .collect::<Vec<_>>(),
+    )
+    .expect("valid connection event JSON")
 }
 
 fn config_with_wildcard_listen_warning() -> String {
