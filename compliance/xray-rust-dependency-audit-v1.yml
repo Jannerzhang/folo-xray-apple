@@ -5,16 +5,16 @@ auditDate: 2026-09-09
 sourceLock: xray-rust-eval-source-lock.yml
 artifactManifest: xray-rust-artifact-manifest-v1.yml
 sbom: xray-rust-dependency-sbom-v1.json
-sourceCommit: ecae528a5e7395f5a048ba39a6ab6fd77d24acad
-sourceTree: e0a08255d36444177a7130ab2c9983dfb9f596e3
+sourceCommit: e6e8103dea98285de98f837c3eebb33eca2549ea
+sourceTree: d3a1043492b81787fff7e268593747297720c858
 rustWorkspacePackages: 294
 graphSha256: c08fdaa0a3f8598fe02412e20aac494c12db0b25e4a67d515250f217571d3235
 metadataSha256: 102aa1114e55b821ec0015fa5c7f2b992d79c8d93b907e324c3019a311151a9b
-sbomSha256: 697ca92be8f1ebca594b515b2b75fd46315355e724442f54348cea0a9d3a9112
+sbomSha256: f70d5adb4abfba52239db1981f2f2ab18540a18f232cfcb21d4b73333f91265f
 abi:
   major: 2
-  minor: 0
-  headerSha256: 256c680b1fa81ac5ab261bba01fd0f68453d10e6a24d96e47f4b19f7f6442be1
+  minor: 1
+  headerSha256: d2a576522f8eb5b850abd09761242ea39a89e60bad94c7a6818a1d9e2a65633b
   moduleMapSha256: 28552741cc3df9540cef79770cc103c516dbc565dc87387be01a86ef38066f11
 releaseGate:
   releaseReady: false

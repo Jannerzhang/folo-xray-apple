@@ -9,7 +9,7 @@ requestedSlices:
 rustToolchain: 1.96.0
 abi:
   major: 2
-  minor: 0
+  minor: 1
 artifactName: XrayRust.xcframework
 artifactPresent: false
 appIntegrationAllowed: false

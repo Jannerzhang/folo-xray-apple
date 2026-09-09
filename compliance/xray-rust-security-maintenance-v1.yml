@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 schemaVersion: 2
 status: CANDIDATE_ONLY
-sourceCommit: ecae528a5e7395f5a048ba39a6ab6fd77d24acad
-rustTree: e0a08255d36444177a7130ab2c9983dfb9f596e3
+sourceCommit: e6e8103dea98285de98f837c3eebb33eca2549ea
+rustTree: d3a1043492b81787fff7e268593747297720c858
 abiMajor: 2
-abiMinor: 0
+abiMinor: 1
 
 security:
   independentAudit: false

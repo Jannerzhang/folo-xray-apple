@@ -50,8 +50,10 @@ marker_text = File.read(marker)
 end
 
 header_text = File.read(header)
-fail!("ABI major is not 2") unless header_text.include?("#define XRAY_FFI_ABI_MAJOR 2")
-fail!("ABI minor is not 0") unless header_text.include?("#define XRAY_FFI_ABI_MINOR 0")
+expected_major = core.fetch("ffi").fetch("abiMajor")
+expected_minor = core.fetch("ffi").fetch("abiMinor")
+fail!("ABI major is stale") unless header_text.include?("#define XRAY_FFI_ABI_MAJOR #{expected_major}")
+fail!("ABI minor is stale") unless header_text.include?("#define XRAY_FFI_ABI_MINOR #{expected_minor}")
 
 puts "xray_rust_source_lock=pass"
 puts "core_commit=#{actual_commit}"

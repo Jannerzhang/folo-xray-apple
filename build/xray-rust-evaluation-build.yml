@@ -16,5 +16,5 @@ testCommand: "cargo +1.96.0 test --manifest-path xray-rust-eval/Cargo.toml --loc
 artifactPolicy:
   binary: ignored-local-only
   abiMajor: 2
-  abiMinor: 0
+  abiMinor: 1
   publishAllowed: false

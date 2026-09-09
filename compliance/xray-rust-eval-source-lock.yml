@@ -5,8 +5,8 @@ purpose: "Immutable source and ABI identity for the Rust Core Apple artifact"
 
 core:
   repository: https://github.com/Jannerzhang/folo-xray-apple
-  commit: ecae528a5e7395f5a048ba39a6ab6fd77d24acad
-  rustTree: e0a08255d36444177a7130ab2c9983dfb9f596e3
+  commit: e6e8103dea98285de98f837c3eebb33eca2549ea
+  rustTree: d3a1043492b81787fff7e268593747297720c858
   sourcePath: xray-rust-eval
   cargoLockSha256: 270d481f84d5e6f8072f6c65988dc2a5f2ef5f9fe7c1055f48c16fe88475ab8a
   rustToolchain: 1.96.0
@@ -15,8 +15,8 @@ core:
     file: xray-rust-eval/LICENSE
   ffi:
     abiMajor: 2
-    abiMinor: 0
-    headerSha256: 256c680b1fa81ac5ab261bba01fd0f68453d10e6a24d96e47f4b19f7f6442be1
+    abiMinor: 1
+    headerSha256: d2a576522f8eb5b850abd09761242ea39a89e60bad94c7a6818a1d9e2a65633b
     moduleMapSha256: 28552741cc3df9540cef79770cc103c516dbc565dc87387be01a86ef38066f11
 
 upstreamRust:

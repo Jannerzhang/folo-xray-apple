@@ -83,10 +83,13 @@ REQUIRED_ABI_SYMBOLS=(
   xray_ffi_capabilities
   xray_core_new
   xray_core_load_config_json
+  xray_core_set_tun_runtime_profile
   xray_core_start
   xray_core_cancel_tun_poll
   xray_core_stop
   xray_core_free
+  xray_error_code
+  xray_error_message
   xray_error_free
   xray_tun_push_packet
   xray_tun_push_packets
@@ -154,7 +157,7 @@ source:
   ffiHeaderSha256: $HEADER_SHA256
   moduleMapSha256: $MODULEMAP_SHA256
   abiMajor: 2
-  abiMinor: 0
+  abiMinor: 1
 slices:
   - ios-arm64
   - ios-arm64_x86_64-simulator

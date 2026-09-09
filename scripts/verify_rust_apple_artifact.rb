@@ -24,7 +24,7 @@ errors << "module map is missing" unless File.file?(module_map)
 
 header_text = File.file?(header) ? File.read(header) : ""
 errors << "ABI major is not 2" unless header_text.include?("#define XRAY_FFI_ABI_MAJOR 2")
-errors << "ABI minor is not 0" unless header_text.include?("#define XRAY_FFI_ABI_MINOR 0")
+errors << "ABI minor is not 1" unless header_text.include?("#define XRAY_FFI_ABI_MINOR 1")
 
 required_slices = {
   "ios-arm64" => File.join(artifact, "ios-arm64", "libxray_ffi.a"),

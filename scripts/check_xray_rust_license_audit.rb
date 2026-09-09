@@ -52,7 +52,7 @@ lock_core = lock.fetch("core")
 fail!("source lock commit differs from SBOM") unless lock_core.fetch("commit") == source_commit
 fail!("source lock tree differs from SBOM") unless lock_core.fetch("rustTree") == source_tree
 fail!("artifact manifest source tree differs from SBOM") unless manifest.fetch("source").fetch("rustTree") == source_tree
-fail!("artifact manifest ABI is not v2.0") unless manifest.fetch("source").slice("abiMajor", "abiMinor") == { "abiMajor" => 2, "abiMinor" => 0 }
+fail!("artifact manifest ABI is not v2.1") unless manifest.fetch("source").slice("abiMajor", "abiMinor") == { "abiMajor" => 2, "abiMinor" => 1 }
 
 header = File.join(ROOT, "xray-rust-eval", "crates", "xray-ffi", "include", "xray_ffi.h")
 cargo_lock = File.join(ROOT, "xray-rust-eval", "Cargo.lock")
