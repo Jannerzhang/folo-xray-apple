@@ -25,7 +25,7 @@ use xray_tun::TunTcpSlowFlowKind;
 use zeroize::Zeroize;
 
 pub const XRAY_FFI_ABI_MAJOR: u32 = 2;
-pub const XRAY_FFI_ABI_MINOR: u32 = 0;
+pub const XRAY_FFI_ABI_MINOR: u32 = 1;
 
 pub const XRAY_FFI_CAPABILITY_CONFIG_WARNINGS: u64 = 1 << 0;
 pub const XRAY_FFI_CAPABILITY_GEODATA_SEARCH: u64 = 1 << 1;
@@ -44,6 +44,9 @@ pub const XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH: u64 = 1 << 13;
 pub const XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT: u64 = 1 << 14;
 pub const XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE: u64 = 1 << 15;
 pub const XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH: u64 = 1 << 16;
+pub const XRAY_FFI_CAPABILITY_CONNECTION_EVENTS: u64 = 1 << 17;
+
+pub const XRAY_CONNECTION_EVENT_PAGE_MAX: usize = 64;
 
 pub const XRAY_TUN_BATCH_MAX_PACKETS: usize = 256;
 pub const XRAY_TUN_BATCH_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -64,7 +67,8 @@ pub const XRAY_FFI_CAPABILITIES: u64 = XRAY_FFI_CAPABILITY_CONFIG_WARNINGS
     | XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH
     | XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT
     | XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE
-    | XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH;
+    | XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH
+    | XRAY_FFI_CAPABILITY_CONNECTION_EVENTS;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1432,6 +1436,92 @@ pub unsafe extern "C" fn xray_core_outbound_accounting_snapshot_json(
                 error,
             )
         })
+    }
+}
+
+/// Copies a bounded page of completed connection events. `after_cursor` is
+/// exclusive and `limit` must be between one and
+/// [`XRAY_CONNECTION_EVENT_PAGE_MAX`]. The JSON response contains the latest
+/// cursor, cumulative dropped-event count, a `hasMore` flag and event records.
+/// The call may run concurrently with data-path and other snapshot calls, but
+/// not lifecycle calls or `xray_core_free`.
+///
+/// # Safety
+///
+/// `handle` must either be null or a live core handle. `written` must point to
+/// writable memory; when `buffer` is non-null it must point to `buffer_len`
+/// writable bytes. The function follows the same two-pass UTF-8 output
+/// contract as the other snapshot APIs.
+#[no_mangle]
+pub unsafe extern "C" fn xray_core_connection_events_json(
+    handle: *const XrayCoreHandle,
+    after_cursor: u64,
+    limit: usize,
+    buffer: *mut c_char,
+    buffer_len: usize,
+    written: *mut usize,
+    error: *mut *mut XrayError,
+) -> XrayStatus {
+    unsafe {
+        ffi_status(error, || {
+            xray_core_connection_events_json_inner(
+                handle,
+                after_cursor,
+                limit,
+                buffer,
+                buffer_len,
+                written,
+                error,
+            )
+        })
+    }
+}
+
+unsafe fn xray_core_connection_events_json_inner(
+    handle: *const XrayCoreHandle,
+    after_cursor: u64,
+    limit: usize,
+    buffer: *mut c_char,
+    buffer_len: usize,
+    written: *mut usize,
+    error: *mut *mut XrayError,
+) -> XrayStatus {
+    unsafe {
+        clear_error(error);
+    }
+    if limit == 0 || limit > XRAY_CONNECTION_EVENT_PAGE_MAX {
+        unsafe {
+            set_error(
+                error,
+                XrayStatus::InvalidArgument,
+                format!(
+                    "connection event page limit must be between 1 and {XRAY_CONNECTION_EVENT_PAGE_MAX}"
+                ),
+            );
+        }
+        return XrayStatus::InvalidArgument;
+    }
+    if handle.is_null() {
+        unsafe {
+            set_error(error, XrayStatus::NullArgument, "core handle is null");
+        }
+        return XrayStatus::NullArgument;
+    }
+    let handle = unsafe { &*handle };
+    let core = match unsafe { loaded_core(handle, error) } {
+        Ok(core) => core,
+        Err(status) => return status,
+    };
+    let json = connection_events_json(core, after_cursor, limit);
+    unsafe {
+        write_utf8_output(
+            &json,
+            "connection event snapshot",
+            buffer,
+            buffer_len,
+            written,
+            error,
+        )
     }
 }
 
@@ -4044,6 +4134,8 @@ fn connection_snapshot_json(core: &Core) -> String {
                 "address": address,
                 "port": connection.target.port,
                 "startedUnixMs": connection.started_unix_ms,
+                "uplinkBytes": connection.uplink_bytes,
+                "downlinkBytes": connection.downlink_bytes,
             })
         })
         .collect::<Vec<_>>();
@@ -4075,6 +4167,48 @@ fn outbound_accounting_snapshot_json(core: &Core) -> String {
         "schemaVersion": 1,
         "revision": snapshot.revision,
         "outbounds": outbounds,
+    })
+    .to_string()
+}
+
+fn connection_events_json(core: &Core, after_cursor: u64, limit: usize) -> String {
+    let page = core.completed_connection_event_page(after_cursor, limit);
+    let events = page
+        .events
+        .into_iter()
+        .map(|event| {
+            let network = match event.network {
+                Network::Tcp => "tcp",
+                Network::Udp => "udp",
+            };
+            let (address_type, address) = match event.target.addr {
+                TargetAddr::Ip(ip) => ("ip", ip.to_string()),
+                TargetAddr::Domain(domain) => ("domain", domain),
+            };
+            serde_json::json!({
+                "cursor": event.cursor,
+                "connectionId": event.connection_id.get(),
+                "inboundTag": event.inbound_tag,
+                "outboundTag": event.outbound_tag,
+                "network": network,
+                "addressType": address_type,
+                "address": address,
+                "port": event.target.port,
+                "startedUnixMs": event.started_unix_ms,
+                "endedUnixMs": event.ended_unix_ms,
+                "durationMs": event.duration_ms,
+                "uplinkBytes": event.uplink_bytes,
+                "downlinkBytes": event.downlink_bytes,
+                "closedByHost": event.closed_by_host,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "schemaVersion": 1,
+        "latestCursor": page.latest_cursor,
+        "droppedCount": page.dropped_count,
+        "hasMore": page.has_more,
+        "events": events,
     })
     .to_string()
 }

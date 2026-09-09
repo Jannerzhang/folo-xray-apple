@@ -208,7 +208,9 @@ The connection document is an ID-sorted point-in-time inventory:
       "addressType": "ip",
       "address": "127.0.0.1",
       "port": 53,
-      "startedUnixMs": 1788220800000
+      "startedUnixMs": 1788220800000,
+      "uplinkBytes": 24,
+      "downlinkBytes": 96
     }
   ]
 }
@@ -248,6 +250,44 @@ snapshot rather than retrying a disappeared ID. The current registry covers
 routed SOCKS TCP/UDP, HTTP TCP, and TUN TCP/UDP sessions. Each SOCKS UDP
 `(client, target)` flow owns a separate ID; closing the TCP `UDP ASSOCIATE`
 control connection still removes all of its child flows.
+
+### Completed connection events
+
+The additive connection-events capability exposes
+`xray_core_connection_events_json`. It uses the same two-pass UTF-8 output
+contract, accepts an exclusive `after_cursor` and a page limit from 1 through
+64, and returns a version-1 document:
+
+```json
+{
+  "schemaVersion": 1,
+  "latestCursor": 12,
+  "droppedCount": 0,
+  "hasMore": false,
+  "events": [
+    {
+      "cursor": 12,
+      "connectionId": 17,
+      "outboundTag": "direct",
+      "network": "tcp",
+      "addressType": "domain",
+      "address": "example.test",
+      "port": 443,
+      "startedUnixMs": 1788220800000,
+      "endedUnixMs": 1788220801200,
+      "durationMs": 1200,
+      "uplinkBytes": 64,
+      "downlinkBytes": 96,
+      "closedByHost": false
+    }
+  ]
+}
+```
+
+The registry keeps at most 512 completed events in memory. `droppedCount`
+monotonically reports records evicted before a host reads them. The event ring,
+active inventory and cumulative accounting are cleared when the core stops;
+completed connection events are not persisted.
 
 ## Threading
 

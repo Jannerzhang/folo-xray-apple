@@ -7,9 +7,10 @@
 /* Generated from the Rust xray-ffi ABI contract. Keep these values in lockstep
  * with XRAY_FFI_ABI_MAJOR/MINOR in crates/xray-ffi/src/lib.rs. */
 #define XRAY_FFI_ABI_MAJOR 2
-#define XRAY_FFI_ABI_MINOR 0
+#define XRAY_FFI_ABI_MINOR 1
 #define XRAY_TUN_BATCH_MAX_PACKETS 256
 #define XRAY_TUN_BATCH_MAX_BYTES (4u * 1024u * 1024u)
+#define XRAY_CONNECTION_EVENT_PAGE_MAX 64
 
 #ifdef __cplusplus
 extern "C" {
@@ -207,7 +208,8 @@ typedef enum XrayFfiCapability {
   XRAY_FFI_CAPABILITY_OUTBOUND_HEALTH = 1 << 13,
   XRAY_FFI_CAPABILITY_CONNECTION_MANAGEMENT = 1 << 14,
   XRAY_FFI_CAPABILITY_ROUTING_POLICY_UPDATE = 1 << 15,
-  XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH = 1 << 16
+  XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH = 1 << 16,
+  XRAY_FFI_CAPABILITY_CONNECTION_EVENTS = 1 << 17
 } XrayFfiCapability;
 
 uint32_t xray_ffi_version_major(void);
@@ -298,6 +300,18 @@ XrayStatus xray_core_connection_snapshot_json(
     XrayError **error);
 XrayStatus xray_core_outbound_accounting_snapshot_json(
     const XrayCoreHandle *handle,
+    char *buffer,
+    size_t buffer_len,
+    size_t *written,
+    XrayError **error);
+/* Copies a bounded page of completed connection events. `after_cursor` is
+ * exclusive. The JSON document contains `latestCursor`, `droppedCount`,
+ * `hasMore`, and an `events` array. Pass null/zero as `buffer`/`buffer_len`
+ * to query the required UTF-8 length. `limit` must be in 1..64. */
+XrayStatus xray_core_connection_events_json(
+    const XrayCoreHandle *handle,
+    uint64_t after_cursor,
+    size_t limit,
     char *buffer,
     size_t buffer_len,
     size_t *written,

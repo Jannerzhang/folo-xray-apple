@@ -84,9 +84,9 @@ fn tun_config_minimal() -> String {
 #[test]
 fn abi_v2_reports_major_2_and_negotiation() {
     assert_eq!(xray_ffi_version_major(), 2);
-    assert_eq!(xray_ffi_version_minor(), 0);
+    assert_eq!(xray_ffi_version_minor(), 1);
     assert_eq!(XRAY_FFI_ABI_MAJOR, 2);
-    assert_eq!(XRAY_FFI_ABI_MINOR, 0);
+    assert_eq!(XRAY_FFI_ABI_MINOR, 1);
 
     let caps = xray_ffi_capabilities();
     assert_ne!(caps & XRAY_FFI_CAPABILITY_TUN_BATCH_PUSH, 0);

@@ -55,8 +55,9 @@ const TUN_OUTBOUND_QUEUE_DEPTH: usize = 4096;
 const GENERATED_DNS_TAG_PREFIX: &str = "xray.system.";
 
 pub use connection::{
-    ConnectionCloseError, ConnectionId, ConnectionInfo, ConnectionRegistry, ConnectionSnapshot,
-    ConnectionState, OutboundAccounting, OutboundAccountingSnapshot,
+    CompletedConnectionEvent, CompletedConnectionEventPage, ConnectionCloseError, ConnectionId,
+    ConnectionInfo, ConnectionRegistry, ConnectionSnapshot, ConnectionState, OutboundAccounting,
+    OutboundAccountingSnapshot,
 };
 pub use dns_outbound::{
     build_refused_response, build_return_response, parse_dns_query, CompiledDnsOutboundPolicy,
@@ -765,6 +766,15 @@ impl Core {
         self.connection_registry.accounting_snapshot()
     }
 
+    pub fn completed_connection_event_page(
+        &self,
+        after_cursor: u64,
+        limit: usize,
+    ) -> CompletedConnectionEventPage {
+        self.connection_registry
+            .completed_event_page(after_cursor, limit)
+    }
+
     pub fn close_connection(&self, id: ConnectionId) -> Result<u64, ConnectionCloseError> {
         self.connection_registry.close(id)
     }
@@ -1072,6 +1082,7 @@ impl Core {
             }
         }
         self.tun.close();
+        self.connection_registry.clear();
         self.state = CoreState::Stopped;
         Ok(())
     }
