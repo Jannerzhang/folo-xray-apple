@@ -189,3 +189,28 @@ fn test_routing_ip_and_cidr_validation_rejects_malformed_values() {
     let mixed_ipv6 = config("2001:db8::/32");
     assert!(parse_xray_json(&mixed_ipv6).is_ok());
 }
+
+#[test]
+fn test_mini_geosite_and_geoip_integration() {
+    let geodata_dir = std::path::Path::new("/Users/liwanqing/Documents/UGit/folo-ios-core-eval/Sources/FoloCore/Resources");
+    assert!(geodata_dir.join("geosite.dat").exists());
+    assert!(geodata_dir.join("geoip.dat").exists());
+
+    let config = r#"{
+      "inbounds": [{"tag":"tun-in","protocol":"tun","listen":"127.0.0.1","port":0,"settings":{}}],
+      "outbounds": [{"tag":"direct","protocol":"freedom"}, {"tag":"proxy","protocol":"freedom"}],
+      "routing": {
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [
+          {"type":"field","domain":["geosite:douyin","geosite:kuaishou","geosite:ecommerce","geosite:video","geosite:wechat","geosite:qq","geosite:cn"],"outboundTag":"direct"},
+          {"type":"field","ip":["geoip:cn","geoip:private"],"outboundTag":"direct"}
+        ]
+      }
+    }"#;
+
+    let parsed = xray_config::parse_xray_json_with_geodata_dir(config, geodata_dir)
+        .expect("Mini-geosite and mini-geoip config must parse successfully");
+    assert!(parsed.diagnostics.is_empty(), "expected zero diagnostics, got: {:?}", parsed.diagnostics);
+    assert_eq!(parsed.config.routing.rules.len(), 2);
+}
+
