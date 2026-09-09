@@ -20,7 +20,7 @@ use xray_transport::{
     NameServerPolicy, NameServerTransport, SocketProtector, SystemDnsResolver, TransportDialer,
     TransportError,
 };
-use xray_tun::{TunConfig, TunEndpoint};
+use xray_tun::{TunByteBudget, TunConfig, TunEndpoint};
 
 mod connection;
 mod debug_log;
@@ -659,13 +659,15 @@ impl Core {
         if queue_bytes > resource_budget.max_packet_queue_bytes {
             return Err(CoreError::InvalidTunResourceBudget);
         }
-        let tun = Arc::new(TunEndpoint::new_with_queue_depths(
+        let byte_budget = tun::tun_byte_budget_for_options(tun_runtime_options);
+        let tun = Arc::new(TunEndpoint::new_with_queue_depths_and_budget(
             TunConfig {
                 mtu: tun_queue_options.mtu,
                 queue_depth: tun_queue_options.inbound_queue_depth,
             },
             tun_queue_options.inbound_queue_depth,
             tun_queue_options.outbound_queue_depth,
+            Arc::new(TunByteBudget::new(byte_budget)),
         ));
 
         Ok(Self {

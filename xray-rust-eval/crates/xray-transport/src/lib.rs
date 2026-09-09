@@ -465,25 +465,31 @@ pub async fn connect_tcp_stream(
     socket_protector: Option<&dyn SocketProtector>,
 ) -> Result<TcpStream, TransportError> {
     let addr = canonicalize_socket_addr(addr);
-    let stream = match socket_protector {
-        None => TcpStream::connect(addr)
-            .await
-            .map_err(TransportError::Tcp)?,
-        Some(socket_protector) => {
-            let socket = if addr.is_ipv4() {
-                TcpSocket::new_v4()
-            } else {
-                TcpSocket::new_v6()
-            }
-            .map_err(TransportError::Tcp)?;
+    let socket = if addr.is_ipv4() {
+        TcpSocket::new_v4()
+    } else {
+        TcpSocket::new_v6()
+    }
+    .map_err(TransportError::Tcp)?;
 
-            socket_protector
-                .protect(SocketHandle::from_tcp_socket(&socket))
-                .map_err(TransportError::SocketProtection)?;
+    if let Some(socket_protector) = socket_protector {
+        socket_protector
+            .protect(SocketHandle::from_tcp_socket(&socket))
+            .map_err(TransportError::SocketProtection)?;
+    }
 
-            socket.connect(addr).await.map_err(TransportError::Tcp)?
-        }
-    };
+    #[cfg(any(
+        target_os = "ios",
+        target_os = "android",
+        target_os = "tvos",
+        target_os = "watchos"
+    ))]
+    {
+        let _ = socket.set_recv_buffer_size(256 * 1024);
+        let _ = socket.set_send_buffer_size(256 * 1024);
+    }
+
+    let stream = socket.connect(addr).await.map_err(TransportError::Tcp)?;
 
     // The relay carries many latency-sensitive small frames (VLESS headers,
     // Vision blocks, TLS records); Nagle would delay them behind ACKs.
