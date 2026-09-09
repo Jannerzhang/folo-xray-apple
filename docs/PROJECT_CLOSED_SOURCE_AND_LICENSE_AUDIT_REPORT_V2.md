@@ -74,6 +74,10 @@ r-efi 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later
 
 当前 checkout 存在被忽略的 `xray-rust-mobile-eval`，内含 `.build`、`Artifacts/XrayRust.xcframework`、`dist` 和 `release` 目录。它们未被 Git 跟踪，但会触发 `check_rust_core_boundary.rb`。发布工作区应只包含可复核源代码、构建脚本和已绑定的 release 输入；生成的 XCFramework 应通过受控 release artifact 进入客户端，不应依赖工作区残留物。
 
+### K-04 / P1：远端仓库存在尚未分诊的依赖安全告警
+
+本次推送该审计分支时，GitHub remote 返回默认分支存在 96 个 Dependabot 漏洞告警（27 critical、18 high、39 moderate、12 low）。这只是仓库级告警，不能直接推导为全部进入 iOS XCFramework；但在没有按最终 iOS target、website、测试和 build-only 依赖拆分的 SBOM、修复记录或书面豁免前，内核依赖安全风险不能视为关闭。
+
 ## 4. Apple 关系和建议
 
 Apple 不要求 App 或其源码公开；但 [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/) 要求开发者拥有/获准使用包含的知识产权，并禁止不符合平台规则的代码下载执行方式。当前内核可在构建时嵌入私有 App 的 Packet Tunnel，但不能把运行时下载可执行代码作为规避 source offer 的手段。
@@ -87,7 +91,8 @@ Apple 不要求 App 或其源码公开；但 [App Review Guidelines](https://dev
 3. 在 macOS 上构建、签名并发布与该 tag 一一对应的 XCFramework；用客户端流水线验证 artifact、source、SBOM、notice 和 ABI hash。
 4. 建立真实依赖审批记录，修复许可证表达式解析，明确 iOS target、website、测试、Go oracle 和 build-only 依赖边界。
 5. 清理 `xray-rust-mobile-eval` 及其他生成目录，并让 boundary gate 在干净 checkout 中通过。
-6. 若目标仍是内核完全闭源，另行启动 clean-room/rewrite 或取得所有必要版权持有人的商业再许可；在此之前不得把当前 MPL 内核改标为 Proprietary。
+6. 对 Dependabot 告警按最终 Apple artifact 的 target-scoped SBOM 分诊，修复可达漏洞并记录不能升级的理由和缓解措施。
+7. 若目标仍是内核完全闭源，另行启动 clean-room/rewrite 或取得所有必要版权持有人的商业再许可；在此之前不得把当前 MPL 内核改标为 Proprietary。
 
 ## 6. 最终判定
 
