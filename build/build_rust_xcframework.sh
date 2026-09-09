@@ -145,7 +145,7 @@ schemaVersion: 2
 status: LOCAL_ONLY
 artifact: XrayRust.xcframework
 source:
-  repository: https://github.com/Jannerzhang/folo-xray-apple-core
+  repository: https://github.com/Jannerzhang/folo-xray-apple
   revision: $REVISION
   rustTree: $(git -C "$REPO_ROOT" rev-parse "$REVISION:xray-rust-eval")
   sourcePath: xray-rust-eval

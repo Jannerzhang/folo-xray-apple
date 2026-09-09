@@ -2,7 +2,7 @@
 
 Every published Core artifact must identify an immutable `rustX.Y` tag in:
 
-<https://github.com/Jannerzhang/folo-xray-apple-core>
+<https://github.com/Jannerzhang/folo-xray-apple>
 
 The release bundle records:
 

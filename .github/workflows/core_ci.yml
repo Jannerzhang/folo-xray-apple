@@ -53,7 +53,7 @@ jobs:
 
       - name: Verify Rust dependency audit
         run: |
-          ruby scripts/generate_xray_rust_dependency_sbom.rb --source-commit "$(git rev-parse HEAD)"
+          ruby scripts/generate_xray_rust_dependency_sbom.rb --source-commit "$(git log -1 --format=%H -- xray-rust-eval)"
           ruby scripts/check_xray_rust_license_audit.rb
 
   go-oracles:
@@ -105,7 +105,7 @@ jobs:
       - name: Package release bundle
         id: bundle
         env:
-          SOURCE_URL: https://github.com/Jannerzhang/folo-xray-apple-core
+          SOURCE_URL: https://github.com/Jannerzhang/folo-xray-apple
         run: |
           set -euo pipefail
           revision=$(git rev-parse HEAD)

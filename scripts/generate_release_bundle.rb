@@ -16,7 +16,7 @@ options = {
   output: nil,
   artifact: nil,
   core_tag: ENV["GITHUB_REF_NAME"],
-  source_url: "https://github.com/Jannerzhang/folo-xray-apple-core",
+  source_url: "https://github.com/Jannerzhang/folo-xray-apple",
   source_offer_url: nil,
   release_ready: false
 }

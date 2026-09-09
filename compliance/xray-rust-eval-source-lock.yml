@@ -4,7 +4,7 @@ status: candidate-only
 purpose: "Immutable source and ABI identity for the Rust Core Apple artifact"
 
 core:
-  repository: https://github.com/Jannerzhang/folo-xray-apple-core
+  repository: https://github.com/Jannerzhang/folo-xray-apple
   commit: ecae528a5e7395f5a048ba39a6ab6fd77d24acad
   rustTree: e0a08255d36444177a7130ab2c9983dfb9f596e3
   sourcePath: xray-rust-eval
