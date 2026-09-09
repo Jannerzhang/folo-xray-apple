@@ -1,51 +1,27 @@
 # SPDX-License-Identifier: Apache-2.0
-schemaVersion: 1
-status: PARTIAL_BLOCKED
-reviewDate: 2026-09-07
-sourceCommit: 549807d621fadc618e6d0bab75f9e58ef35a7fc1
-mobileCommit: 377bc2523a97b4faf3b039b65dce2a94381c2e6e
-evaluationCoreCommit: 35cb74f3471fb0a3bb879e9f8b37838d72b14eb7
-evaluationAppCommit: c00265346057a8110f08be2ade9ceba4dbe0a4ab
+schemaVersion: 2
+status: CANDIDATE_ONLY
+sourceCommit: ecae528a5e7395f5a048ba39a6ab6fd77d24acad
+rustTree: e0a08255d36444177a7130ab2c9983dfb9f596e3
+abiMajor: 2
+abiMinor: 0
 
 security:
   independentAudit: false
-  currentBranchFixesOnly: true
-  mobilePreOneSupportWindow: "not guaranteed"
-  credentialHistoryDisclosure: true
-  releaseEvidence: "candidate-maintainer CI and synthetic tests; not Folo approval"
+  cargoAuditAndDeny: required
+  fuzzAndMiri: release-candidate-only
+  liveNodeTests: opt-in
+  physicalDeviceCampaign: pending-human
+  artifactSigning: protected-human-gate
 
-candidateEvidence:
-  hermeticRustTests: documented
-  cargoAuditAndDeny: documented_in_CI
-  fuzzAndMiri: release-candidate_only
-  liveNodeTests: opt_in_and_ignored_by_default
-  physicalDeviceCampaign: partial_rehearsals_claimed; six_hour_campaign_not_run
-  macosBenchmark: "not evidence for iOS footprint"
-
-foloBoundaryFindings:
-  - id: private-utun-discovery
-    files:
-      - xray-rust-mobile-eval/Sources/XrayMobileAdapter/XrayDarwinTunFileDescriptor.swift
-      - xray-rust-mobile-eval/Sources/XrayAppleTunnel/XrayPacketTunnelProvider.swift
-    evidence: "enumerates file descriptors 0...maximum and uses AF_SYSTEM/getpeername/ioctl/getsockopt"
-    decision: REJECTED_FOR_FOLO
-    requiredAction: "Do not consume XrayAppleTunnel or XrayDarwinTunFileDescriptor; build a public NEPacketTunnelFlow adapter."
-  - id: raw-config-boundary
-    decision: REVIEW_REQUIRED
-    requiredAction: "Folo App Group lease must remain the only profile handoff; providerConfiguration cannot carry JSON or credentials."
-  - id: logging
-    decision: REVIEW_REQUIRED
-    requiredAction: "Run Folo sensitive-log scan against the final wrapper; candidate notices are not a substitute."
-
-maintenance:
-  releaseTag: v0.5.0
-  coreMappingVerified: true
-  appleArtifactLocallyPresent: false
-  upstreamChangeAutomation: "candidate repository provides sync/release scripts; no Folo ownership or SLA"
-  rollback: "retain existing official core; candidate remains feature-gated"
+foloBoundary:
+  runtime: Rust xray_ffi only
+  packetFlow: host-owned NEPacketTunnelFlow adapter
+  privateAppleApis: forbidden
+  rawProfileJsonInProviderConfiguration: forbidden
+  testOnlyGoOracleInAppleArtifact: forbidden
 
 decision:
   securityReady: false
   foloIntegrationReady: false
-  continueHostEvaluation: true
   humanSecurityReviewRequired: true

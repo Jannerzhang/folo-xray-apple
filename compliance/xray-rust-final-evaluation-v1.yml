@@ -1,34 +1,30 @@
-schemaVersion: 1
-evaluation: xray-rust-long-term-replacement
-date: 2026-09-07
+# SPDX-License-Identifier: Apache-2.0
+schemaVersion: 2
+evaluation: rust-core-apple-artifact
+date: 2026-09-09
 source:
-  coreCommit: 35cb74f3471fb0a3bb879e9f8b37838d72b14eb7
-  mobileCommit: 377bc2523a97b4faf3b039b65dce2a94381c2e6e
-  mobileAppleArtifactSHA256: 4d2d72fbbb44ebcde2d1fa129ff87e2b055933597656b35cb096bcdeef7ed84c
+  rustSourceCommit: ecae528a5e7395f5a048ba39a6ab6fd77d24acad
+  rustTree: e0a08255d36444177a7130ab2c9983dfb9f596e3
   abiMajor: 2
   abiMinor: 0
   artifactManifest: xray-rust-artifact-manifest-v1.yml
-decision: no-go
-productionCore: unchanged
-integration: not-approved
+decision: candidate-only
+productionCore: rust-xray-ffi
+integration: client-side Rust artifact gate
 blockingFindings:
-  - id: packetflow-boundary
-    detail: candidate mobile provider contains private utun descriptor discovery and is not consumed
   - id: artifact
-    detail: no locally verified XCFramework content, ABI symbols, signature, or link result
+    detail: release artifact, signature and public source tag still require protected release evidence
   - id: device
-    detail: no real-device or controlled-service evidence was collected
+    detail: real-device Packet Tunnel and controlled-service evidence remain human gates
 evidenceLimits:
-  - macOS benchmark output is not iOS footprint evidence
-  - candidate fixtures are not protocol interoperability evidence
-  - VLESS/TCP/REALITY/Vision is the only evaluated configuration subset
-  - VMess/Trojan/Shadowsocks/WireGuard are not implemented by this evaluation
+  - host Rust tests are not iOS process-memory evidence
+  - test-only Go oracle fixtures are not Apple runtime dependencies
+  - private client profile and Network Extension behavior remain outside this repository
 sourceBoundary:
-  mplSourceAndModificationsRemainIn: core
+  rustSourceAndModificationsRemainIn: xray-rust-eval
   privateIOSConsumesOnlyApprovedArtifact: true
-  forbiddenImplementationsReadOrCopied: false
+  retiredGoRuntimeIsAbsent: true
 nextGate:
-  - resolve dependency licenses or obtain an explicitly approved alternative
-  - provide the pinned Rust/Apple matrix and independently verify artifact contents
-  - provide security/legal approval and a public PacketFlow-only adapter
-  - coordinate device testing with the primary agent
+  - publish immutable Rust Core tag and signed XrayRust.xcframework
+  - complete dependency/security review
+  - complete signed device and controlled interoperability campaign

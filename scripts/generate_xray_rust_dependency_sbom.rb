@@ -18,7 +18,7 @@ options = {
 OptionParser.new do |parser|
   parser.banner = "usage: generate_xray_rust_dependency_sbom.rb [options]"
   parser.on("--output PATH", "SBOM output path") { |value| options[:output] = File.expand_path(value) }
-  parser.on("--source-commit COMMIT", "source commit whose xray-rust-eval tree is being described") do |value|
+  parser.on("--source-commit COMMIT", "core commit whose xray-rust-eval tree is being described") do |value|
     options[:source_commit] = value
   end
 end.parse!
