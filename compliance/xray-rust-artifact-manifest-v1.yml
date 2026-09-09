@@ -1,21 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
-schemaVersion: 1
+schemaVersion: 2
 status: CANDIDATE_ONLY
 releaseReady: false
 appIntegrationAllowed: false
 
 source:
-  appCommit: c00265346057a8110f08be2ade9ceba4dbe0a4ab
-  coreCommit: 35cb74f3471fb0a3bb879e9f8b37838d72b14eb7
-  sourceTree: 1e71802c1b94e477e790a348878001400149c1b5
+  repository: https://github.com/Jannerzhang/folo-xray-apple-core
+  revision: LOCAL_BUILD_REVISION
+  rustTree: d3a1043492b81787fff7e268593747297720c858
+  sourcePath: xray-rust-eval
   abiMajor: 2
-  abiMinor: 0
-  ffiHeaderSha256: 372a5539756df970583b58c3a077363e23dc55b7445b21ecef52ce79b814f952
+  abiMinor: 1
+  ffiHeaderSha256: d2a576522f8eb5b850abd09761242ea39a89e60bad94c7a6818a1d9e2a65633b
+  moduleMapSha256: 28552741cc3df9540cef79770cc103c516dbc565dc87387be01a86ef38066f11
   cargoLockSha256: 270d481f84d5e6f8072f6c65988dc2a5f2ef5f9fe7c1055f48c16fe88475ab8a
 
 artifact:
   name: XrayRust.xcframework.zip
-  expectedSha256: 4d2d72fbbb44ebcde2d1fa129ff87e2b055933597656b35cb096bcdeef7ed84c
   present: false
   signed: false
   linked: false
@@ -23,8 +24,8 @@ artifact:
 
 evidence:
   dependencyGraph: verified
-  licenseBoundary: verified_for_current_graph
-  packetFlow: missing
-  device: missing
-  controlledInterop: missing
-  performanceSoak: missing
+  licenseBoundary: verified_for_current_rust_graph
+  packetFlow: pending_private_client
+  device: pending_human
+  controlledInterop: pending_human
+  performanceSoak: pending_human

@@ -1,9 +1,9 @@
-name: Folo public core CI and release
+name: Folo Rust Core CI and release
 
 on:
   push:
     branches: [main]
-    tags: ['app-v*-core.*']
+    tags: ['rust*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -12,12 +12,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: folo-core-${{ github.ref }}
+  group: folo-rust-core-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.96.0
+
 jobs:
-  audit:
-    name: Reproducibility and license audit
+  rust:
+    name: Rust ABI and boundary audit
     runs-on: macos-14
     steps:
       - name: Checkout immutable source
@@ -25,35 +29,56 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install locked Go toolchain
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.4'
-          cache: true
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
 
-      - name: Select the locked Xcode toolchain
-        shell: bash
+      - name: Select pinned Rust toolchain
+        run: rustup default "$RUST_TOOLCHAIN"
+
+      - name: Select the Xcode toolchain
         run: |
           set -euo pipefail
           test -d /Applications/Xcode_26.4.1.app
           sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
           xcodebuild -version
 
-      - name: Verify source lock and license boundary
+      - name: Verify Rust-only source boundary and source lock
         run: |
-          ruby scripts/verify_upstream_lock.rb
-          ./scripts/check_license_boundary.sh
+          ruby scripts/check_rust_core_boundary.rb
+          ruby scripts/verify_xray_rust_source_lock.rb
 
-      - name: Run public core tests
+      - name: Run Rust FFI tests
+        working-directory: xray-rust-eval
+        run: cargo test --locked -p xray-ffi --all-targets
+
+      - name: Verify Rust dependency audit
         run: |
-          GOTOOLCHAIN=local go test github.com/xtls/xray-core/main/distro/folo
-          GOTOOLCHAIN=local go test github.com/xtls/libXray/xray
-          GOTOOLCHAIN=local go test github.com/Jannerzhang/folo-xray-apple/apple-wrapper
+          ruby scripts/generate_xray_rust_dependency_sbom.rb --source-commit "$(git log -1 --format=%H -- xray-rust-eval)"
+          ruby scripts/check_xray_rust_license_audit.rb
+
+  go-oracles:
+    name: Test-only Go oracle fixtures
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout immutable source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned Go toolchain for fixtures only
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          cache-dependency-path: xray-rust-eval/go.sum
+
+      - name: Verify oracle fixtures
+        working-directory: xray-rust-eval
+        run: scripts/verify-oracle-fixtures.sh
 
   release:
-    name: Build, sign and publish core artifact
-    needs: audit
-    if: startsWith(github.ref, 'refs/tags/app-v')
+    name: Build, sign and publish Rust Core artifact
+    needs: [rust, go-oracles]
+    if: startsWith(github.ref, 'refs/tags/rust')
     runs-on: macos-14
     environment: PublicCoreRelease
     permissions:
@@ -64,35 +89,31 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install locked Go toolchain
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.4'
-          cache: true
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
 
-      - name: Select the locked Xcode toolchain
-        shell: bash
+      - name: Select pinned Rust toolchain and Xcode
         run: |
           set -euo pipefail
+          rustup default "$RUST_TOOLCHAIN"
           test -d /Applications/Xcode_26.4.1.app
           sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
 
-      - name: Build the reproducible XCFramework
-        run: ./build/folo_build_xcframework.sh
+      - name: Build and verify Rust XCFramework
+        run: FOLO_XRAY_RUST_TOOLCHAIN="$RUST_TOOLCHAIN" ./build/build_rust_xcframework.sh
 
-      - name: Package and generate SPDX release bundle
+      - name: Package release bundle
         id: bundle
         env:
           SOURCE_URL: https://github.com/Jannerzhang/folo-xray-apple
-        shell: bash
         run: |
           set -euo pipefail
           revision=$(git rev-parse HEAD)
-          framework="artifacts/xcframework/${revision}/FoloXray.xcframework"
+          framework="artifacts/xcframework/${revision}/XrayRust.xcframework"
           test -d "$framework"
-          archive="$RUNNER_TEMP/FoloXray.xcframework.zip"
+          archive="$RUNNER_TEMP/XrayRust.xcframework.zip"
           ditto -c -k --keepParent "$framework" "$archive"
-          output="$RUNNER_TEMP/folo-core-release"
+          output="$RUNNER_TEMP/folo-rust-core-release"
           ruby scripts/generate_release_bundle.rb \
             --artifact "$archive" \
             --output "$output" \
@@ -106,26 +127,25 @@ jobs:
       - name: Sign artifact and compliance records
         env:
           FOLO_CORE_SIGNING_PRIVATE_KEY_B64: ${{ secrets.FOLO_CORE_SIGNING_PRIVATE_KEY_B64 }}
-        shell: bash
         run: |
           set -euo pipefail
           test -n "$FOLO_CORE_SIGNING_PRIVATE_KEY_B64"
-          key="$RUNNER_TEMP/folo-core-signing.pem"
+          key="$RUNNER_TEMP/folo-rust-core-signing.pem"
           printf '%s' "$FOLO_CORE_SIGNING_PRIVATE_KEY_B64" | base64 --decode > "$key"
           ruby scripts/sign_release_artifact.rb \
-            --artifact "${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip" \
+            --artifact "${{ steps.bundle.outputs.output }}/XrayRust.xcframework.zip" \
             --private-key "$key" \
-            --signature "${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip.sig"
+            --signature "${{ steps.bundle.outputs.output }}/XrayRust.xcframework.zip.sig"
           rm -f "$key"
 
       - name: Upload immutable release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: folo-core-${{ github.ref_name }}
+          name: folo-rust-core-${{ github.ref_name }}
           if-no-files-found: error
           path: |
-            ${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip
-            ${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip.sig
+            ${{ steps.bundle.outputs.output }}/XrayRust.xcframework.zip
+            ${{ steps.bundle.outputs.output }}/XrayRust.xcframework.zip.sig
             ${{ steps.bundle.outputs.output }}/release-manifest.json
             ${{ steps.bundle.outputs.output }}/sbom.spdx.json
             ${{ steps.bundle.outputs.output }}/THIRD_PARTY_NOTICES.md
@@ -135,8 +155,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip
-            ${{ steps.bundle.outputs.output }}/FoloXray.xcframework.zip.sig
+            ${{ steps.bundle.outputs.output }}/XrayRust.xcframework.zip
+            ${{ steps.bundle.outputs.output }}/XrayRust.xcframework.zip.sig
             ${{ steps.bundle.outputs.output }}/release-manifest.json
             ${{ steps.bundle.outputs.output }}/sbom.spdx.json
             ${{ steps.bundle.outputs.output }}/THIRD_PARTY_NOTICES.md

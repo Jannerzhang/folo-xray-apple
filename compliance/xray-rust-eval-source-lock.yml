@@ -1,17 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-schemaVersion: 1
+schemaVersion: 2
 status: candidate-only
-reviewDate: 2026-09-07
-purpose: "Immutable source and SDK identity for the xray-rust replacement evaluation"
+purpose: "Immutable source and ABI identity for the Rust Core Apple artifact"
 
 core:
-  repository: https://github.com/aimalygin/xray-rust.git
-  tag: v0.5.0
-  tagObject: 7599d32d5d26b43651e69bad642aa7f10318d77c
-  commit: 549807d621fadc618e6d0bab75f9e58ef35a7fc1
-  tree: 444c2404cec84f5ff9869af78e403c504b39c161
-  archiveSha256: 8c3764cee716d27933c4cc8a6f8dec6788c5fb818ee0ffcd83712b90e615c632
-  importedPath: xray-rust-eval
+  repository: https://github.com/Jannerzhang/folo-xray-apple
+  commit: e6e8103dea98285de98f837c3eebb33eca2549ea
+  rustTree: d3a1043492b81787fff7e268593747297720c858
+  sourcePath: xray-rust-eval
   cargoLockSha256: 270d481f84d5e6f8072f6c65988dc2a5f2ef5f9fe7c1055f48c16fe88475ab8a
   rustToolchain: 1.96.0
   license:
@@ -19,36 +15,26 @@ core:
     file: xray-rust-eval/LICENSE
   ffi:
     abiMajor: 2
-    abiMinor: 0
-    headerSha256: 372a5539756df970583b58c3a077363e23dc55b7445b21ecef52ce79b814f952
+    abiMinor: 1
+    headerSha256: d2a576522f8eb5b850abd09761242ea39a89e60bad94c7a6818a1d9e2a65633b
+    moduleMapSha256: 28552741cc3df9540cef79770cc103c516dbc565dc87387be01a86ef38066f11
 
-mobile:
-  repository: https://github.com/aimalygin/xray-rust-mobile.git
+upstreamRust:
+  repository: https://github.com/aimalygin/xray-rust.git
   tag: v0.5.0
-  tagObject: cd2af85cb633bd4a0bc31c32e7b8294cf95706e8
-  commit: 377bc2523a97b4faf3b039b65dce2a94381c2e6e
-  tree: 6bb1a2dd97fe0c2df136803a28952561c960da8e
-  archiveSha256: f81ac63e242cc5feff23b1165e432bb4fee977f79b9c06f361040fa7d0e57076
-  importedPath: xray-rust-mobile-eval
-  releaseVersion: 0.5.0
-  appleArtifact:
-    name: XrayRust.xcframework.zip
-    sha256: 4d2d72fbbb44ebcde2d1fa129ff87e2b055933597656b35cb096bcdeef7ed84c
-    releaseWorkflowRun: 33788809725
-  coreMapping: 549807d621fadc618e6d0bab75f9e58ef35a7fc1
-  toolchains:
-    xcode: 16.4
-    iosDeploymentTarget: 15.0
-    tvosDeploymentTarget: 17.0
-    macosDeploymentTarget: 11.0
+  commit: 549807d621fadc618e6d0bab75f9e58ef35a7fc1
+  tree: 444c2404cec84f5ff9869af78e403c504b39c161
+  marker: xray-rust-eval/SOURCE_REVISION
 
-crossRepository:
-  iosCommit: c00265346057a8110f08be2ade9ceba4dbe0a4ab
-  coreCommit: 35cb74f3471fb0a3bb879e9f8b37838d72b14eb7
-  note: "The lock records the latest-base App/Core evaluation pair; upstream source identity remains separately pinned above."
+artifact:
+  name: XrayRust.xcframework.zip
+  releaseReady: false
+  appIntegrationAllowed: false
+  deviceSlice: ios-arm64
+  simulatorSlice: ios-arm64_x86_64-simulator
 
-reviewFindings:
-  - "The v0.5.0 mobile tag is annotated; peeled commit is recorded separately."
-  - "The SDK maps to core commit 549807d...; a floating branch is not accepted."
-  - "Published Apple checksum identifies an external release asset; the asset is not copied into this repository."
-  - "macOS benchmark values are not iOS footprint evidence."
+testOnly:
+  goOracle:
+    path: xray-rust-eval/tools/reality-oracle
+    allowedIn: fixture-verification-only
+    allowedInAppleArtifact: false

@@ -1,15 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-schemaVersion: 1
-profile: folo-ios-mobile-tuning-v1
+schemaVersion: 2
+profile: folo-ios-rust-core-v2
 status: local-only
 limits:
   maxConfigBytes: 4194304
   maxOutboundCount: 1
   maxInboundCount: 0
   maxEngineInstances: 1
-  maxConcurrentBuildProfiles: 1
-  maxRealityPublicKeyBytes: 32
-  maxRealityShortIdBytes: 8
   packetFlowMaxPacketBytes: 65535
   packetFlowMaxBatch: 64
 defaults:
@@ -19,47 +16,15 @@ defaults:
   vlessFlow: xtls-rprx-vision
   vlessEncryption: none
   statistics: enabled
-  routing: default-outbound-only
-  dns: system-resolver-through-packet-tunnel
   logs: disabled-by-default
   allowInsecure: false
-  disableServerNameVerification: true
-  note: >-
-    Reality performs its own authenticated handshake. The iOS client does not
-    expose a generic TLS insecure switch; certificate and Reality parameters
-    remain subscription-controlled and are validated by the parser.
 resourceBudget:
   measurementUnit: bytes
-  budgetIs: hard review gate, not a promise of a fixed iOS process quota
-  deviceStaticLibraryBytes:
-    beforeStage09: 30758296
-    afterStage09: 17539696
-    target: 18000000
-    rationale: >-
-      The stage-09 build is below the 18 MB static-library budget after the
-      dependency and listener removal. This does not replace runtime Packet
-      Tunnel memory measurement on supported devices.
-  simulatorFatStaticLibraryBytes:
-    beforeStage09: 60021480
-    afterStage09: 34537680
-    target: 36000000
-  runtimeMemory:
-    targetBytes: 15728640
-    escalationBytes: 25165824
-    measurement: peak resident memory of Packet Tunnel extension during a
-      15-minute TCP/Reality traffic soak
-  startup:
-    targetSeconds: 3
-    escalationSeconds: 8
-  shutdown:
-    targetSeconds: 2
-    escalationSeconds: 5
+  budgetIs: hard review gate, not a fixed iOS process quota
+  runtimeMemoryTargetBytes: 15728640
+  runtimeMemoryEscalationBytes: 25165824
+  measurement: peak Packet Tunnel resident memory during a 15-minute TCP/Reality soak
 changeControl:
-  configLimitOwner: apple-wrapper/folo_apple.go
-  schemaLimitOwner: upstream/xray-core/main/folojson
-  instanceLimitOwner: apple-wrapper/folo_apple.go
-  profileRevisionRequiredWhen:
-    - a new protocol or transport is registered
-    - a listener or API surface is introduced
-    - a hard limit changes
-    - an iOS deployment target or toolchain changes
+  configLimitOwner: xray-rust-eval/crates/xray-ffi
+  schemaLimitOwner: xray-rust-eval/crates/xray-config
+  instanceLimitOwner: xray-rust-eval/crates/xray-runtime
