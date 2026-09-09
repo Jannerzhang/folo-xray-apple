@@ -76,7 +76,7 @@ r-efi 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later
 
 ### K-04 / P1：远端仓库存在尚未分诊的依赖安全告警
 
-本次推送该审计分支时，GitHub remote 返回默认分支存在 96 个 Dependabot 漏洞告警（27 critical、18 high、39 moderate、12 low）。这只是仓库级告警，不能直接推导为全部进入 iOS XCFramework；但在没有按最终 iOS target、website、测试和 build-only 依赖拆分的 SBOM、修复记录或书面豁免前，内核依赖安全风险不能视为关闭。
+本次推送该审计分支时，GitHub remote 最后一次返回默认分支存在 99 个 Dependabot 漏洞告警（27 critical、21 high、39 moderate、12 low；此前一次返回为 96 个）。这只是仓库级告警，不能直接推导为全部进入 iOS XCFramework；但在没有按最终 iOS target、website、测试和 build-only 依赖拆分的 SBOM、修复记录或书面豁免前，内核依赖安全风险不能视为关闭。
 
 ## 4. Apple 关系和建议
 
