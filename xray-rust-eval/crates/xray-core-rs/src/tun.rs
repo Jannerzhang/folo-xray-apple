@@ -3227,7 +3227,7 @@ fn should_sniff_tun_tcp(
     config: Option<&InboundSniffingConfig>,
     provenance: FakeIpTargetProvenance,
 ) -> bool {
-    provenance == FakeIpTargetProvenance::InPoolUnmapped
+    provenance != FakeIpTargetProvenance::Mapped
         && crate::sniffing::should_sniff_tcp(config)
 }
 
@@ -8759,6 +8759,10 @@ mod tests {
         assert!(should_sniff_tun_tcp(
             Some(&config),
             FakeIpTargetProvenance::InPoolUnmapped,
+        ));
+        assert!(should_sniff_tun_tcp(
+            Some(&config),
+            FakeIpTargetProvenance::Outside,
         ));
     }
 
